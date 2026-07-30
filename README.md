@@ -97,6 +97,28 @@ Generated-файл не нужно редактировать вручную.
 и тестирования находится в
 [документации generated-кода](docs/generated-code.md).
 
+### Диагностика генерации
+
+Если нужен красивый локализованный вывод ошибок, используйте отдельный
+generation-only CLI:
+
+```sh
+cd cmd/witgen
+go run . \
+  -wit ../../examples/generate/wit \
+  -out ../../examples/generate/out \
+  -package contract \
+  -lang ru
+```
+
+CLI использует [digreyt](https://github.com/slavkiy/digreyt) только при запуске
+генерации. `digreyt` не вшивается в `witgo`, generated-файл или Wasm runtime.
+Автоперевод применяется только к ошибкам; для полностью офлайн-запуска
+передайте `-auto-translate=false`.
+
+CLI вынесен в отдельный Go-модуль, потому что текущая версия `digreyt` требует
+Go 1.25.6. Основная библиотека и generated-код продолжают работать на Go 1.24.
+
 ## Использование Wasm-плагина
 
 Сервер импортирует только generated package:
@@ -267,6 +289,7 @@ component exports и регистрации host functions со стороны `
 | Пример | Что показывает | Команда |
 | --- | --- | --- |
 | [generate](examples/generate) | Генерация Go package из нескольких WIT-файлов | `go run ./examples/generate` |
+| [generation-errors](examples/generation-errors) | Локализованная ошибка парсинга через optional `witgen` | `cd cmd/witgen && go run . -wit ../../examples/generation-errors/invalid.wit -out /tmp/witgo-invalid -lang ru -auto-translate=false` |
 | [plugin](examples/plugin) | Сборка настоящего core Wasm из WAT | `go run ./examples/plugin` |
 | [server](examples/server) | Загрузка `.wasm` и типизированный вызов `Metadata()` | `go run ./examples/server` |
 

@@ -363,6 +363,21 @@ go run ./examples/generate
 go test ./...
 ```
 
+Для локализованных ошибок можно запускать optional CLI:
+
+```sh
+cd cmd/witgen
+go run . \
+  -wit ../../examples/generate/wit \
+  -out ../../examples/generate/out \
+  -package contract \
+  -lang ru
+```
+
+`digreyt` используется только этим CLI во время генерации. Он не является
+зависимостью generated package. `-auto-translate=false` отключает сетевой
+автоперевод ошибок.
+
 Рекомендуется хранить generated-файл в Git, чтобы изменения публичного API были
 видны в code review.
 

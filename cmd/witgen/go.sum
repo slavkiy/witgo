@@ -1,0 +1,14 @@
+github.com/bytecodealliance/wasmtime-go/v47 v47.0.0 h1:PAe4o7Mq1VjSx81Dc+V4w1XvxLouFTB384N4ZT4o+7k=
+github.com/bytecodealliance/wasmtime-go/v47 v47.0.0/go.mod h1:icJLhTDV7EyKlZpeuBuJl4yoTMqhjUvNv1mewMJUvr4=
+github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
+github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
+github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=
+github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
+github.com/rp1s/colorista v0.0.0-20260708184842-4c40c097e1bc h1:EyaKAsMggq/tzcFe091scGXYAn+fVcZNhLWlSJCY8cY=
+github.com/rp1s/colorista v0.0.0-20260708184842-4c40c097e1bc/go.mod h1:jDLOO2NdY6mhQXTTeaeujc+bQdGoxV8sOAP5Wh4ZgFc=
+github.com/rp1s/digreyt v0.0.0-20260715015800-e45b5ec0f059 h1:GkBHyQyx90k9a4cKG1OtnOTKsKgb8Eby8f+89mUlN24=
+github.com/rp1s/digreyt v0.0.0-20260715015800-e45b5ec0f059/go.mod h1:pazPRCUfcpGt7f38X6G2isD8a6IGMw3Nz7D5QNvj0RE=
+github.com/stretchr/testify v1.8.0 h1:pSgiaMZlXftHpm5L7V1+rVB+AZJydKsMxsQBIJw4PKk=
+github.com/stretchr/testify v1.8.0/go.mod h1:yNjHg4UonilssWZ8iaSj1OCr/vHnekPRkoO+kdMU+MU=
+gopkg.in/yaml.v3 v3.0.1 h1:fxVm/GzAzEWqLHuvctI91KS9hhNmmWOoWu0XTYJS7CA=
+gopkg.in/yaml.v3 v3.0.1/go.mod h1:K4uyk7z7BCEPqu6E+C64Yfv1cQ7kz7rIZviUmN+EgEM=
