@@ -6,7 +6,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/slavkiy/witgo/internal/parser/token"
+	"github.com/slavkiy/witgo/parser/token"
 )
 
 type Lexer struct {

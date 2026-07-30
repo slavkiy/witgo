@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/slavkiy/witgo/internal/parser/token"
+	"github.com/slavkiy/witgo/parser/token"
 )
 
 func TestLexCurrentWITShape(t *testing.T) {

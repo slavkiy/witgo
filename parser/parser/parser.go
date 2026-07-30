@@ -3,9 +3,9 @@ package parser
 import (
 	"fmt"
 
-	"github.com/slavkiy/witgo/internal/parser/ast"
-	"github.com/slavkiy/witgo/internal/parser/lexer"
-	"github.com/slavkiy/witgo/internal/parser/token"
+	"github.com/slavkiy/witgo/parser/ast"
+	"github.com/slavkiy/witgo/parser/lexer"
+	"github.com/slavkiy/witgo/parser/token"
 )
 
 type Parser struct {

@@ -3,7 +3,7 @@ package analysis
 import (
 	"fmt"
 
-	"github.com/slavkiy/witgo/internal/parser/ast"
+	"github.com/slavkiy/witgo/parser/ast"
 )
 
 type BuiltinKind uint8
@@ -91,7 +91,10 @@ func defineTopLevel(res *Result, decl ast.Decl) error {
 		return res.Globals.Define(Symbol{Name: d.Name.Text, Kind: SymbolInterface, Node: d})
 	case *ast.WorldDecl:
 		return res.Globals.Define(Symbol{Name: d.Name.Text, Kind: SymbolWorld, Node: d})
-	case interface{ typeDef(); Span() ast.Span }:
+	case interface {
+		typeDef()
+		Span() ast.Span
+	}:
 		return res.Globals.Define(Symbol{Name: extractTypeName(decl), Kind: SymbolType, Node: decl})
 	default:
 		return nil

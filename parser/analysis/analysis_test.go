@@ -3,7 +3,7 @@ package analysis
 import (
 	"testing"
 
-	"github.com/slavkiy/witgo/internal/parser/parser"
+	"github.com/slavkiy/witgo/parser/parser"
 )
 
 func TestAnalyzeFullWITShape(t *testing.T) {

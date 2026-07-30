@@ -1,6 +1,6 @@
 package ast
 
-import "github.com/slavkiy/witgo/internal/parser/token"
+import "github.com/slavkiy/witgo/parser/token"
 
 type Node interface {
 	Span() Span
@@ -162,9 +162,9 @@ type UseDecl struct {
 	SpanRange Span
 }
 
-func (n *UseDecl) Span() Span { return n.SpanRange }
-func (*UseDecl) node()        {}
-func (*UseDecl) decl()        {}
+func (n *UseDecl) Span() Span   { return n.SpanRange }
+func (*UseDecl) node()          {}
+func (*UseDecl) decl()          {}
 func (*UseDecl) interfaceItem() {}
 func (*UseDecl) worldItem()     {}
 
@@ -180,9 +180,9 @@ type TypeDecl struct {
 	SpanRange Span
 }
 
-func (n *TypeDecl) Span() Span { return n.SpanRange }
-func (*TypeDecl) node()        {}
-func (*TypeDecl) decl()        {}
+func (n *TypeDecl) Span() Span   { return n.SpanRange }
+func (*TypeDecl) node()          {}
+func (*TypeDecl) decl()          {}
 func (*TypeDecl) interfaceItem() {}
 func (*TypeDecl) worldItem()     {}
 func (*TypeDecl) typeDef()       {}
@@ -194,9 +194,9 @@ type RecordDecl struct {
 	SpanRange Span
 }
 
-func (n *RecordDecl) Span() Span { return n.SpanRange }
-func (*RecordDecl) node()        {}
-func (*RecordDecl) decl()        {}
+func (n *RecordDecl) Span() Span   { return n.SpanRange }
+func (*RecordDecl) node()          {}
+func (*RecordDecl) decl()          {}
 func (*RecordDecl) interfaceItem() {}
 func (*RecordDecl) worldItem()     {}
 func (*RecordDecl) typeDef()       {}
@@ -214,9 +214,9 @@ type FlagsDecl struct {
 	SpanRange Span
 }
 
-func (n *FlagsDecl) Span() Span { return n.SpanRange }
-func (*FlagsDecl) node()        {}
-func (*FlagsDecl) decl()        {}
+func (n *FlagsDecl) Span() Span   { return n.SpanRange }
+func (*FlagsDecl) node()          {}
+func (*FlagsDecl) decl()          {}
 func (*FlagsDecl) interfaceItem() {}
 func (*FlagsDecl) worldItem()     {}
 func (*FlagsDecl) typeDef()       {}
@@ -228,9 +228,9 @@ type EnumDecl struct {
 	SpanRange Span
 }
 
-func (n *EnumDecl) Span() Span { return n.SpanRange }
-func (*EnumDecl) node()        {}
-func (*EnumDecl) decl()        {}
+func (n *EnumDecl) Span() Span   { return n.SpanRange }
+func (*EnumDecl) node()          {}
+func (*EnumDecl) decl()          {}
 func (*EnumDecl) interfaceItem() {}
 func (*EnumDecl) worldItem()     {}
 func (*EnumDecl) typeDef()       {}
@@ -242,9 +242,9 @@ type VariantDecl struct {
 	SpanRange Span
 }
 
-func (n *VariantDecl) Span() Span { return n.SpanRange }
-func (*VariantDecl) node()        {}
-func (*VariantDecl) decl()        {}
+func (n *VariantDecl) Span() Span   { return n.SpanRange }
+func (*VariantDecl) node()          {}
+func (*VariantDecl) decl()          {}
 func (*VariantDecl) interfaceItem() {}
 func (*VariantDecl) worldItem()     {}
 func (*VariantDecl) typeDef()       {}
@@ -262,9 +262,9 @@ type ResourceDecl struct {
 	SpanRange Span
 }
 
-func (n *ResourceDecl) Span() Span { return n.SpanRange }
-func (*ResourceDecl) node()        {}
-func (*ResourceDecl) decl()        {}
+func (n *ResourceDecl) Span() Span   { return n.SpanRange }
+func (*ResourceDecl) node()          {}
+func (*ResourceDecl) decl()          {}
 func (*ResourceDecl) interfaceItem() {}
 func (*ResourceDecl) worldItem()     {}
 func (*ResourceDecl) typeDef()       {}
@@ -281,8 +281,8 @@ type ConstructorDecl struct {
 	SpanRange Span
 }
 
-func (n *ConstructorDecl) Span() Span { return n.SpanRange }
-func (*ConstructorDecl) node()        {}
+func (n *ConstructorDecl) Span() Span  { return n.SpanRange }
+func (*ConstructorDecl) node()         {}
 func (*ConstructorDecl) resourceItem() {}
 
 type FuncDecl struct {
@@ -295,8 +295,8 @@ type FuncDecl struct {
 	SpanRange Span
 }
 
-func (n *FuncDecl) Span() Span { return n.SpanRange }
-func (*FuncDecl) node()        {}
+func (n *FuncDecl) Span() Span   { return n.SpanRange }
+func (*FuncDecl) node()          {}
 func (*FuncDecl) interfaceItem() {}
 func (*FuncDecl) worldItem()     {}
 func (*FuncDecl) resourceItem()  {}
