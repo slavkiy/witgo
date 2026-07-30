@@ -63,15 +63,7 @@ type runtimeCaller interface {
 }
 
 type Plugin struct {
-	runtime    runtimeCaller
-	pluginInfo PluginInfo
-}
-
-func NewPlugin(pluginInfo PluginInfo) (*Plugin, error) {
-	if pluginInfo == nil {
-		return nil, fmt.Errorf("plugin export plugin-info is nil")
-	}
-	return &Plugin{pluginInfo: pluginInfo}, nil
+	runtime runtimeCaller
 }
 
 func OpenPlugin(filename string) (*Plugin, error) {
@@ -92,13 +84,6 @@ func newPlugin(runtime runtimeCaller) (*Plugin, error) {
 var _ PluginInfo = (*Plugin)(nil)
 
 func (c *Plugin) Metadata() (PluginMetadata, error) {
-	if c.pluginInfo != nil {
-		result, err := c.pluginInfo.Metadata()
-		if err != nil {
-			return *new(PluginMetadata), err
-		}
-		return result, nil
-	}
 	value, err := c.runtime.Call("examples:contract/plugin-info@1.0.0#metadata")
 	if err != nil {
 		return *new(PluginMetadata), err

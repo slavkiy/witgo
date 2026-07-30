@@ -86,13 +86,16 @@ type PluginInfo interface {
 	Metadata() (PluginMetadata, error)
 }
 
-func NewPlugin(pluginInfo PluginInfo) (*Plugin, error)
 func OpenPlugin(filename string) (*Plugin, error)
 
 func (p *Plugin) Metadata() (PluginMetadata, error)
 ```
 
 Generated-файл не нужно редактировать вручную.
+
+Подробное описание всех generated-типов, constructors, imports, методов моделей
+и тестирования находится в
+[документации generated-кода](docs/generated-code.md).
 
 ## Использование Wasm-плагина
 
@@ -129,35 +132,6 @@ func main() {
 Пользовательский код не вызывает `wasmtime`, не ищет экспортированные функции
 и не читает память Wasm самостоятельно.
 
-## Использование Go-плагина
-
-Тот же generated API можно использовать без Wasm. Достаточно реализовать
-сгенерированный интерфейс:
-
-```go
-type plugin struct {
-	metadata contract.PluginMetadata
-}
-
-func (p *plugin) Metadata() (contract.PluginMetadata, error) {
-	return p.metadata, nil
-}
-
-implementation := &plugin{
-	metadata: contract.PluginMetadata{
-		Name:        "image-resizer",
-		Version:     "1.4.0",
-		Author:      "Example Team",
-		Description: "Creates image previews.",
-	},
-}
-
-client, err := contract.NewPlugin(implementation)
-metadata, err := client.Metadata()
-```
-
-Это удобно для тестов, локальной разработки и in-process плагинов.
-
 ## Что генерируется
 
 | WIT | Generated Go |
@@ -166,7 +140,7 @@ metadata, err := client.Metadata()
 | `record plugin-metadata` | `PluginMetadata` struct |
 | импортируемый interface | Go interface, который реализует host |
 | экспортируемый interface | Go interface и методы world |
-| `world plugin` | `Plugin`, `NewPlugin`, `OpenPlugin` |
+| `world plugin` | `Plugin`, `OpenPlugin` |
 | `metadata: func()` | `Metadata() (..., error)` |
 
 Package declaration сохраняется в generated-коде:
@@ -288,25 +262,17 @@ generated package этого уровня не видит.
 Полная поддержка стандартного WIT Component Model потребует поддержки вызова
 component exports и регистрации host functions со стороны `wasmtime-go`.
 
-## Рабочий пример
+## Примеры
 
-В репозитории есть полностью запускаемый сценарий:
+| Пример | Что показывает | Команда |
+| --- | --- | --- |
+| [generate](examples/generate) | Генерация Go package из нескольких WIT-файлов | `go run ./examples/generate` |
+| [plugin](examples/plugin) | Сборка настоящего core Wasm из WAT | `go run ./examples/plugin` |
+| [server](examples/server) | Загрузка `.wasm` и типизированный вызов `Metadata()` | `go run ./examples/server` |
 
-```text
-examples/
-├── generate/
-│   ├── main.go
-│   ├── wit/
-│   └── out/bindings.gen.go
-├── plugin/
-│   ├── main.go
-│   ├── plugin.wat
-│   └── plugin.wasm
-└── server/
-    └── main.go
-```
+### Wasm plugin
 
-Запуск:
+Полный цикл генерации, сборки плагина и запуска сервера:
 
 ```sh
 go run ./examples/generate
@@ -324,7 +290,7 @@ Author: Example Team
 Description: Resizes uploaded images and creates previews.
 ```
 
-Исходники:
+Полезные исходники:
 
 - [WIT-контракт](examples/generate/wit)
 - [generated library](examples/generate/out/bindings.gen.go)

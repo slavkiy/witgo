@@ -482,45 +482,9 @@ func (r *renderer) renderWorld(world *ir.World) error {
 
 	fmt.Fprintf(&r.out, "type %s struct {\n", worldName)
 	fmt.Fprintln(&r.out, "\truntime runtimeCaller")
-	for _, exported := range exports {
-		fmt.Fprintf(&r.out, "\t%s %s\n", goLocalName(exported.name), exported.interfaceName)
-	}
 	for _, imported := range imports {
 		fmt.Fprintf(&r.out, "\t%s %s\n", goLocalName(imported.name), imported.interfaceName)
 	}
-	fmt.Fprintln(&r.out, "}")
-	fmt.Fprintln(&r.out)
-
-	fmt.Fprintf(&r.out, "func New%s(%s) (*%s, error) {\n", worldName, r.implementationParams(exports, imports), worldName)
-	for _, exported := range exports {
-		field := goLocalName(exported.name)
-		fmt.Fprintf(&r.out, "\tif %s == nil {\n", field)
-		fmt.Fprintf(&r.out, "\t\treturn nil, fmt.Errorf(%q)\n", world.Name+" export "+exported.name+" is nil")
-		fmt.Fprintln(&r.out, "\t}")
-	}
-	for _, imported := range imports {
-		field := goLocalName(imported.name)
-		fmt.Fprintf(&r.out, "\tif %s == nil {\n", field)
-		fmt.Fprintf(&r.out, "\t\treturn nil, fmt.Errorf(%q)\n", world.Name+" import "+imported.name+" is nil")
-		fmt.Fprintln(&r.out, "\t}")
-	}
-	fmt.Fprintf(&r.out, "\treturn &%s{", worldName)
-	for index, exported := range exports {
-		if index > 0 {
-			fmt.Fprint(&r.out, ", ")
-		}
-		field := goLocalName(exported.name)
-		fmt.Fprintf(&r.out, "%s: %s", field, field)
-	}
-	offset := len(exports)
-	for index, imported := range imports {
-		if offset+index > 0 {
-			fmt.Fprint(&r.out, ", ")
-		}
-		field := goLocalName(imported.name)
-		fmt.Fprintf(&r.out, "%s: %s", field, field)
-	}
-	fmt.Fprintln(&r.out, "}, nil")
 	fmt.Fprintln(&r.out, "}")
 	fmt.Fprintln(&r.out)
 
@@ -566,13 +530,13 @@ func (r *renderer) renderWorld(world *ir.World) error {
 	}
 	for _, export := range exports {
 		for _, fn := range export.functions {
-			if err := r.renderClientMethod(worldName, export.callName, export.name, fn); err != nil {
+			if err := r.renderClientMethod(worldName, export.callName, fn); err != nil {
 				return err
 			}
 		}
 	}
 	for _, fn := range directFunctions {
-		if err := r.renderClientMethod(worldName, "", "", fn); err != nil {
+		if err := r.renderClientMethod(worldName, "", fn); err != nil {
 			return err
 		}
 	}
@@ -595,17 +559,6 @@ func (r *renderer) importParams(imports []worldInterface) string {
 		return ""
 	}
 	return ", " + strings.Join(params, ", ")
-}
-
-func (r *renderer) implementationParams(exports, imports []worldInterface) string {
-	var params []string
-	for _, exported := range exports {
-		params = append(params, goLocalName(exported.name)+" "+exported.interfaceName)
-	}
-	for _, imported := range imports {
-		params = append(params, goLocalName(imported.name)+" "+imported.interfaceName)
-	}
-	return strings.Join(params, ", ")
 }
 
 func (r *renderer) importArgs(imports []worldInterface) string {
@@ -702,29 +655,8 @@ func interfaceFunctions(items []ir.InterfaceItem) []*ir.Func {
 	return functions
 }
 
-func (r *renderer) renderClientMethod(worldName, interfaceName, implementationName string, fn *ir.Func) error {
+func (r *renderer) renderClientMethod(worldName, interfaceName string, fn *ir.Func) error {
 	fmt.Fprintf(&r.out, "func (c *%s) %s%s {\n", worldName, goName(fn.Name), r.clientSignature(fn))
-	if implementationName != "" {
-		field := goLocalName(implementationName)
-		args := make([]string, 0, len(fn.Params))
-		for index, param := range fn.Params {
-			args = append(args, paramName(param, index))
-		}
-		fmt.Fprintf(&r.out, "\tif c.%s != nil {\n", field)
-		if fn.Result == nil {
-			fmt.Fprintf(&r.out, "\t\treturn c.%s.%s(%s)\n", field, goName(fn.Name), strings.Join(args, ", "))
-		} else {
-			fmt.Fprintf(&r.out, "\t\tresult, err := c.%s.%s(%s)\n", field, goName(fn.Name), strings.Join(args, ", "))
-			fmt.Fprintln(&r.out, "\t\tif err != nil {")
-			fmt.Fprintf(&r.out, "\t\t\treturn %s, err\n", r.zeroValue(fn.Result))
-			fmt.Fprintln(&r.out, "\t\t}")
-			if named, ok := fn.Result.(*ir.NamedType); ok && len(r.modelFuncs[named.Name]) > 0 {
-				fmt.Fprintln(&r.out, "\t\tresult.binding = c")
-			}
-			fmt.Fprintln(&r.out, "\t\treturn result, nil")
-		}
-		fmt.Fprintln(&r.out, "\t}")
-	}
 	args := make([]string, 0, len(fn.Params))
 	for index, param := range fn.Params {
 		name := paramName(param, index)

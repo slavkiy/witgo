@@ -72,6 +72,7 @@ world plugin {
 		"type Caller interface",
 		"type PluginImports struct",
 		"type PluginClient struct",
+		"func NewPlugin",
 		"func LowerUser",
 		"func LiftUser",
 		"map[string]any",
