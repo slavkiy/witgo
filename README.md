@@ -15,7 +15,7 @@ import (
 )
 
 func main() {
-    err := witgo.Generate(witgo.Config{
+    pkg, err := witgo.LoadPackage(&witgo.Config{
         WIT:     "wit",
         Output:  ".",
         Package: "plugin",
@@ -23,5 +23,7 @@ func main() {
     if err != nil {
         log.Fatal(err)
     }
+
+    _ = pkg
 }
 ```

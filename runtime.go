@@ -13,19 +13,27 @@ import (
 
 var (
 	ErrUnknownWasmKind = errors.New("unknown WebAssembly kind")
-	ErrComponentCall   = errors.New(
-		"calling component exports is not supported by wasmtime-go/v47",
-	)
 )
 
 type WitgoCtx struct {
-	Kind iwasm.Kind
-
+	Kind      iwasm.Kind
 	Module    *ModuleCtx
 	Component *ComponentCtx
 }
 
+type Runtime struct {
+	Kind      iwasm.Kind
+	Module    *ModuleRuntime
+	Component *ComponentRuntime
+}
+
 type ModuleCtx struct {
+	Store    *wasmtime.Store
+	Module   *wasmtime.Module
+	Instance *wasmtime.Instance
+}
+
+type ModuleRuntime struct {
 	Store    *wasmtime.Store
 	Module   *wasmtime.Module
 	Instance *wasmtime.Instance
@@ -38,7 +46,14 @@ type ComponentCtx struct {
 	Linker    *wasmtime.ComponentLinker
 }
 
-func NewEngine(filename string) (*WitgoCtx, error) {
+type ComponentRuntime struct {
+	Store     *wasmtime.Store
+	Component *wasmtime.Component
+	Instance  *wasmtime.ComponentInstance
+	Linker    *wasmtime.ComponentLinker
+}
+
+func LoadRuntime(filename string) (*Runtime, error) {
 	normalizedPath, err := ipath.NormalizePath(filename)
 	if err != nil {
 		return nil, fmt.Errorf("normalize wasm path: %w", err)
@@ -49,35 +64,35 @@ func NewEngine(filename string) (*WitgoCtx, error) {
 		return nil, fmt.Errorf("read wasm file %q: %w", normalizedPath, err)
 	}
 
-	return NewEngineFromBytes(data)
+	return LoadRuntimeFromBytes(data)
 }
 
-func NewEngineFromBytes(data []byte) (*WitgoCtx, error) {
+func LoadRuntimeFromBytes(data []byte) (*Runtime, error) {
 	if !iwasm.IsWasm(data) {
 		return nil, errors.New("data is not a valid WebAssembly binary")
 	}
 
 	switch kind := iwasm.DetectKind(data); kind {
 	case iwasm.KindCoreModule:
-		moduleCtx, err := newModuleCtx(data)
+		moduleRuntime, err := newModuleRuntime(data)
 		if err != nil {
 			return nil, err
 		}
 
-		return &WitgoCtx{
+		return &Runtime{
 			Kind:   kind,
-			Module: moduleCtx,
+			Module: moduleRuntime,
 		}, nil
 
 	case iwasm.KindComponent:
-		componentCtx, err := newComponentCtx(data)
+		componentRuntime, err := newComponentRuntime(data)
 		if err != nil {
 			return nil, err
 		}
 
-		return &WitgoCtx{
+		return &Runtime{
 			Kind:      kind,
-			Component: componentCtx,
+			Component: componentRuntime,
 		}, nil
 
 	default:
@@ -85,7 +100,25 @@ func NewEngineFromBytes(data []byte) (*WitgoCtx, error) {
 	}
 }
 
-func newModuleCtx(data []byte) (*ModuleCtx, error) {
+func NewEngine(filename string) (*WitgoCtx, error) {
+	runtime, err := LoadRuntime(filename)
+	if err != nil {
+		return nil, err
+	}
+
+	return runtime.legacyContext(), nil
+}
+
+func NewEngineFromBytes(data []byte) (*WitgoCtx, error) {
+	runtime, err := LoadRuntimeFromBytes(data)
+	if err != nil {
+		return nil, err
+	}
+
+	return runtime.legacyContext(), nil
+}
+
+func newModuleRuntime(data []byte) (*ModuleRuntime, error) {
 	engine := wasmtime.NewEngine()
 	store := wasmtime.NewStore(engine)
 
@@ -103,14 +136,14 @@ func newModuleCtx(data []byte) (*ModuleCtx, error) {
 		return nil, fmt.Errorf("instantiate core wasm module: %w", err)
 	}
 
-	return &ModuleCtx{
+	return &ModuleRuntime{
 		Store:    store,
 		Module:   module,
 		Instance: instance,
 	}, nil
 }
 
-func newComponentCtx(data []byte) (*ComponentCtx, error) {
+func newComponentRuntime(data []byte) (*ComponentRuntime, error) {
 	engine := wasmtime.NewEngine()
 	store := wasmtime.NewStore(engine)
 
@@ -126,10 +159,47 @@ func newComponentCtx(data []byte) (*ComponentCtx, error) {
 		return nil, fmt.Errorf("instantiate wasm component: %w", err)
 	}
 
-	return &ComponentCtx{
+	return &ComponentRuntime{
 		Store:     store,
 		Component: component,
 		Instance:  instance,
 		Linker:    linker,
 	}, nil
+}
+
+func (r *Runtime) legacyContext() *WitgoCtx {
+	if r == nil {
+		return nil
+	}
+
+	return &WitgoCtx{
+		Kind:      r.Kind,
+		Module:    r.Module.legacyRuntime(),
+		Component: r.Component.legacyRuntime(),
+	}
+}
+
+func (r *ModuleRuntime) legacyRuntime() *ModuleCtx {
+	if r == nil {
+		return nil
+	}
+
+	return &ModuleCtx{
+		Store:    r.Store,
+		Module:   r.Module,
+		Instance: r.Instance,
+	}
+}
+
+func (r *ComponentRuntime) legacyRuntime() *ComponentCtx {
+	if r == nil {
+		return nil
+	}
+
+	return &ComponentCtx{
+		Store:     r.Store,
+		Component: r.Component,
+		Instance:  r.Instance,
+		Linker:    r.Linker,
+	}
 }
