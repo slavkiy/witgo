@@ -1,0 +1,10 @@
+package examples:contract@1.0.0;
+
+interface types {
+    record plugin-metadata {
+        name: string,
+        version: string,
+        author: string,
+        description: string,
+    }
+}

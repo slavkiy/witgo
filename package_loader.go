@@ -7,7 +7,7 @@ import (
 )
 
 func Open(config *Config) (*WitgoCtx, error) {
-	pkg, err := LoadPackage(config)
+	pkg, err := loadPackage(config)
 	if err != nil {
 		return nil, err
 	}
@@ -17,12 +17,12 @@ func Open(config *Config) (*WitgoCtx, error) {
 	return nil, nil
 }
 
-type Package struct {
+type dir_package struct {
 	DirectoryTree *ipath.DirectoryTree
 	Config        *Config
 }
 
-func LoadPackage(config *Config) (*Package, error) {
+func loadPackage(config *Config) (*dir_package, error) {
 	if config == nil {
 		return nil, fmt.Errorf("config is nil")
 	}
@@ -32,7 +32,7 @@ func LoadPackage(config *Config) (*Package, error) {
 		return nil, fmt.Errorf("build package tree: %w", err)
 	}
 
-	return &Package{
+	return &dir_package{
 		DirectoryTree: directoryTree,
 		Config:        config,
 	}, nil

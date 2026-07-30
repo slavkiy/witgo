@@ -1,0 +1,12 @@
+package examples:contract@1.0.0;
+
+// The plugin implements this interface and exposes its metadata to the server.
+interface plugin-info {
+    use types.{plugin-metadata};
+
+    metadata: func() -> plugin-metadata;
+}
+
+world plugin {
+    export plugin-info;
+}

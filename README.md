@@ -1,29 +1,350 @@
-<p align="center"><img src="assets/art.png" alt="Art" width="300"></p>
+<p align="center"><img src="assets/art.png" alt="witgo" width="300"></p>
 
-## Использование
+# witgo
 
-Сохраните содержимое этого файла в любом месте вашего проекта и запустите его с помощью `go generate`.
-``` go
-//go:build ignore
+`witgo` генерирует типизированную Go-библиотеку из WIT-контракта. Сервер
+работает с обычными Go-моделями и интерфейсами, а загрузка Wasm, имена экспортов
+и чтение памяти остаются внутри generated-кода.
 
+Минимальная версия Go: **1.24**.
+
+## Установка
+
+```sh
+go get github.com/slavkiy/witgo
+```
+
+## Быстрый старт
+
+Контракт `wit/types.wit`:
+
+```wit
+package examples:contract@1.0.0;
+
+interface types {
+    record plugin-metadata {
+        name: string,
+        version: string,
+        author: string,
+        description: string,
+    }
+}
+```
+
+Контракт `wit/plugin.wit`:
+
+```wit
+package examples:contract@1.0.0;
+
+interface plugin-info {
+    use types.{plugin-metadata};
+
+    metadata: func() -> plugin-metadata;
+}
+
+world plugin {
+    export plugin-info;
+}
+```
+
+Запуск генератора:
+
+```go
 package main
 
 import (
-    "log"
+	"log"
 
-    "github.com/slavkiy/witgo"
+	"github.com/slavkiy/witgo"
 )
 
 func main() {
-    pkg, err := witgo.LoadPackage(&witgo.Config{
-        WIT:     "wit",
-        Output:  ".",
-        Package: "plugin",
-    })
-    if err != nil {
-        log.Fatal(err)
-    }
-
-    _ = pkg
+	err := witgo.Generate(witgo.Config{
+		WIT:     "./wit",
+		Output:  "./internal/contract",
+		Package: "contract",
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
 }
 ```
+
+```sh
+go run ./cmd/generate
+```
+
+В `internal/contract/bindings.gen.go` появится готовая библиотека:
+
+```go
+type PluginMetadata struct {
+	Name        string
+	Version     string
+	Author      string
+	Description string
+}
+
+type PluginInfo interface {
+	Metadata() (PluginMetadata, error)
+}
+
+func NewPlugin(pluginInfo PluginInfo) (*Plugin, error)
+func OpenPlugin(filename string) (*Plugin, error)
+
+func (p *Plugin) Metadata() (PluginMetadata, error)
+```
+
+Generated-файл не нужно редактировать вручную.
+
+## Использование Wasm-плагина
+
+Сервер импортирует только generated package:
+
+```go
+package main
+
+import (
+	"fmt"
+	"log"
+
+	contract "example.com/project/internal/contract"
+)
+
+func main() {
+	plugin, err := contract.OpenPlugin("./plugins/plugin.wasm")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	metadata, err := plugin.Metadata()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	fmt.Println("Name:", metadata.Name)
+	fmt.Println("Version:", metadata.Version)
+	fmt.Println("Author:", metadata.Author)
+	fmt.Println("Description:", metadata.Description)
+}
+```
+
+Пользовательский код не вызывает `wasmtime`, не ищет экспортированные функции
+и не читает память Wasm самостоятельно.
+
+## Использование Go-плагина
+
+Тот же generated API можно использовать без Wasm. Достаточно реализовать
+сгенерированный интерфейс:
+
+```go
+type plugin struct {
+	metadata contract.PluginMetadata
+}
+
+func (p *plugin) Metadata() (contract.PluginMetadata, error) {
+	return p.metadata, nil
+}
+
+implementation := &plugin{
+	metadata: contract.PluginMetadata{
+		Name:        "image-resizer",
+		Version:     "1.4.0",
+		Author:      "Example Team",
+		Description: "Creates image previews.",
+	},
+}
+
+client, err := contract.NewPlugin(implementation)
+metadata, err := client.Metadata()
+```
+
+Это удобно для тестов, локальной разработки и in-process плагинов.
+
+## Что генерируется
+
+| WIT | Generated Go |
+| --- | --- |
+| `package examples:contract@1.0.0` | package metadata constants |
+| `record plugin-metadata` | `PluginMetadata` struct |
+| импортируемый interface | Go interface, который реализует host |
+| экспортируемый interface | Go interface и методы world |
+| `world plugin` | `Plugin`, `NewPlugin`, `OpenPlugin` |
+| `metadata: func()` | `Metadata() (..., error)` |
+
+Package declaration сохраняется в generated-коде:
+
+```go
+const (
+	WITPackageNamespace = "examples"
+	WITPackageName      = "contract"
+	WITPackageVersion   = "1.0.0"
+	WITPackageID        = "examples:contract@1.0.0"
+)
+```
+
+Runtime-имя экспортированной функции строится из полного WIT ID:
+
+```text
+examples:contract/plugin-info@1.0.0#metadata
+```
+
+Если exported-функция принимает модель первым аргументом, generated-код может
+добавить к модели удобный метод. Например:
+
+```wit
+save-user: func(user: user) -> bool;
+```
+
+создаёт:
+
+```go
+saved, err := user.Save()
+```
+
+Связь модели с plugin хранится в приватном поле и не видна пользователю.
+
+## Config
+
+```go
+type Config struct {
+	WIT      string
+	Output   string
+	Package  string
+	Filename string
+}
+```
+
+| Поле | Описание |
+| --- | --- |
+| `WIT` | Путь к `.wit`-файлу или каталогу. Каталог обходится рекурсивно |
+| `Output` | Каталог для generated-кода. По умолчанию текущий каталог |
+| `Package` | Имя Go package. Если пустое, берётся из WIT package |
+| `Filename` | Имя файла. По умолчанию `bindings.gen.go` |
+
+Все найденные WIT-файлы должны относиться к одному package и иметь одинаковую
+версию. Запись generated-файла выполняется атомарно после `go/format`.
+
+Для повторного использования конфигурации:
+
+```go
+generator, err := witgo.NewGenerator(config)
+if err != nil {
+	return err
+}
+return generator.Generate()
+```
+
+## Host imports
+
+WIT import превращается в интерфейс, который должен реализовать сервер:
+
+```wit
+interface host {
+    current-user: func() -> user;
+}
+
+world plugin {
+    import host;
+    export plugin-info;
+}
+```
+
+Generated-конструктор принимает реализацию напрямую:
+
+```go
+type host struct{}
+
+func (host) CurrentUser() contract.User {
+	return contract.User{Name: "Server user"}
+}
+
+plugin, err := contract.OpenPlugin("plugin.wasm", host{})
+```
+
+Go-реализация import хранится внутри модели world. Фактическое связывание
+component-model host imports пока ограничено возможностями `wasmtime-go/v47`.
+
+## Core Wasm ABI
+
+Текущий runtime вызывает **core WebAssembly modules**. Экспорт должен называться
+полным WIT-именем:
+
+```wat
+(func
+  (export "examples:contract/plugin-info@1.0.0#metadata")
+  (result i64)
+  ...
+)
+```
+
+Для record-результата пример использует простой закрытый ABI:
+
+- record кодируется как JSON в экспортированной памяти `memory`;
+- функция возвращает `i64`;
+- младшие 32 бита содержат offset;
+- старшие 32 бита содержат длину JSON.
+
+Generated library сама читает память и декодирует JSON в Go-модель. Пользователь
+generated package этого уровня не видит.
+
+Полная поддержка стандартного WIT Component Model потребует поддержки вызова
+component exports и регистрации host functions со стороны `wasmtime-go`.
+
+## Рабочий пример
+
+В репозитории есть полностью запускаемый сценарий:
+
+```text
+examples/
+├── generate/
+│   ├── main.go
+│   ├── wit/
+│   └── out/bindings.gen.go
+├── plugin/
+│   ├── main.go
+│   ├── plugin.wat
+│   └── plugin.wasm
+└── server/
+    └── main.go
+```
+
+Запуск:
+
+```sh
+go run ./examples/generate
+go run ./examples/plugin
+go run ./examples/server
+```
+
+Ожидаемый результат:
+
+```text
+Plugin metadata
+Name: image-resizer
+Version: 1.4.0
+Author: Example Team
+Description: Resizes uploaded images and creates previews.
+```
+
+Исходники:
+
+- [WIT-контракт](examples/generate/wit)
+- [generated library](examples/generate/out/bindings.gen.go)
+- [Wasm-плагин](examples/plugin/plugin.wat)
+- [сервер](examples/server/main.go)
+
+## Ограничения
+
+- Component Model exports пока нельзя вызвать через используемый
+  `wasmtime-go/v47`.
+- Component host imports пока не связываются с Wasm.
+- Core Wasm record ABI сейчас основан на JSON и packed `i64`.
+- Generated-файл рассчитан на Go 1.24 и новее.
+
+## Проверка
+
+```sh
+go test ./...
+```
+
+Проект и generated-примеры проверяются на Go 1.24.
