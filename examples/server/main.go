@@ -20,7 +20,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	metadata, err := plugin.Metadata()
+	metadata, err := plugin.PluginInfo.Metadata()
 	if err != nil {
 		log.Fatal(err)
 	}

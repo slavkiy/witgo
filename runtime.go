@@ -13,7 +13,17 @@ import (
 
 var (
 	ErrUnknownWasmKind = errors.New("unknown WebAssembly kind")
+	// ErrFuelDisabled is returned by fuel methods for an unlimited runtime.
+	ErrFuelDisabled = errors.New("WebAssembly fuel metering is disabled")
 )
+
+// RuntimeOptions controls resource limits for a WebAssembly runtime.
+//
+// Fuel is the initial instruction budget shared by all calls made through the
+// runtime. A zero value disables fuel metering for backwards compatibility.
+type RuntimeOptions struct {
+	Fuel uint64
+}
 
 type WitgoCtx struct {
 	Kind      iwasm.Kind
@@ -54,6 +64,11 @@ type ComponentRuntime struct {
 }
 
 func LoadRuntime(filename string) (*Runtime, error) {
+	return LoadRuntimeWithOptions(filename, RuntimeOptions{})
+}
+
+// LoadRuntimeWithOptions loads a WebAssembly runtime with resource limits.
+func LoadRuntimeWithOptions(filename string, options RuntimeOptions) (*Runtime, error) {
 	normalizedPath, err := ipath.NormalizePath(filename)
 	if err != nil {
 		return nil, fmt.Errorf("normalize wasm path: %w", err)
@@ -64,17 +79,23 @@ func LoadRuntime(filename string) (*Runtime, error) {
 		return nil, fmt.Errorf("read wasm file %q: %w", normalizedPath, err)
 	}
 
-	return LoadRuntimeFromBytes(data)
+	return LoadRuntimeFromBytesWithOptions(data, options)
 }
 
 func LoadRuntimeFromBytes(data []byte) (*Runtime, error) {
+	return LoadRuntimeFromBytesWithOptions(data, RuntimeOptions{})
+}
+
+// LoadRuntimeFromBytesWithOptions loads a WebAssembly runtime from memory with
+// resource limits.
+func LoadRuntimeFromBytesWithOptions(data []byte, options RuntimeOptions) (*Runtime, error) {
 	if !iwasm.IsWasm(data) {
 		return nil, errors.New("data is not a valid WebAssembly binary")
 	}
 
 	switch kind := iwasm.DetectKind(data); kind {
 	case iwasm.KindCoreModule:
-		moduleRuntime, err := newModuleRuntime(data)
+		moduleRuntime, err := newModuleRuntime(data, options)
 		if err != nil {
 			return nil, err
 		}
@@ -85,7 +106,7 @@ func LoadRuntimeFromBytes(data []byte) (*Runtime, error) {
 		}, nil
 
 	case iwasm.KindComponent:
-		componentRuntime, err := newComponentRuntime(data)
+		componentRuntime, err := newComponentRuntime(data, options)
 		if err != nil {
 			return nil, err
 		}
@@ -118,9 +139,11 @@ func NewEngineFromBytes(data []byte) (*WitgoCtx, error) {
 	return runtime.legacyContext(), nil
 }
 
-func newModuleRuntime(data []byte) (*ModuleRuntime, error) {
-	engine := wasmtime.NewEngine()
-	store := wasmtime.NewStore(engine)
+func newModuleRuntime(data []byte, options RuntimeOptions) (*ModuleRuntime, error) {
+	engine, store, err := newStore(options)
+	if err != nil {
+		return nil, err
+	}
 
 	module, err := wasmtime.NewModule(engine, data)
 	if err != nil {
@@ -143,9 +166,11 @@ func newModuleRuntime(data []byte) (*ModuleRuntime, error) {
 	}, nil
 }
 
-func newComponentRuntime(data []byte) (*ComponentRuntime, error) {
-	engine := wasmtime.NewEngine()
-	store := wasmtime.NewStore(engine)
+func newComponentRuntime(data []byte, options RuntimeOptions) (*ComponentRuntime, error) {
+	engine, store, err := newStore(options)
+	if err != nil {
+		return nil, err
+	}
 
 	component, err := wasmtime.NewComponent(engine, data)
 	if err != nil {
@@ -165,6 +190,22 @@ func newComponentRuntime(data []byte) (*ComponentRuntime, error) {
 		Instance:  instance,
 		Linker:    linker,
 	}, nil
+}
+
+func newStore(options RuntimeOptions) (*wasmtime.Engine, *wasmtime.Store, error) {
+	if options.Fuel == 0 {
+		engine := wasmtime.NewEngine()
+		return engine, wasmtime.NewStore(engine), nil
+	}
+
+	config := wasmtime.NewConfig()
+	config.SetConsumeFuel(true)
+	engine := wasmtime.NewEngineWithConfig(config)
+	store := wasmtime.NewStore(engine)
+	if err := store.SetFuel(options.Fuel); err != nil {
+		return nil, nil, fmt.Errorf("set initial WebAssembly fuel: %w", err)
+	}
+	return engine, store, nil
 }
 
 func (r *Runtime) legacyContext() *WitgoCtx {

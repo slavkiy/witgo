@@ -1,16 +1,12 @@
 package main
 
 import (
-	"context"
 	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
-	"github.com/rp1s/digreyt"
-	"github.com/rp1s/digreyt/translate"
 	"github.com/slavkiy/witgo"
 )
 
@@ -25,7 +21,6 @@ type options struct {
 
 func main() {
 	opts := parseFlags()
-	translate.SetLanguage(normalizeLanguage(opts.language))
 
 	err := witgo.Generate(witgo.Config{
 		WIT:      opts.wit,
@@ -34,7 +29,7 @@ func main() {
 		Filename: opts.filename,
 	})
 	if err != nil {
-		renderGenerationError(err, opts.autoTranslate)
+		renderGenerationError(err, normalizeLanguage(opts.language))
 		os.Exit(1)
 	}
 
@@ -42,7 +37,7 @@ func main() {
 	if output == "" {
 		output = "bindings.gen.go"
 	}
-	renderSuccess(filepath.Join(opts.output, output))
+	renderSuccess(filepath.Join(opts.output, output), normalizeLanguage(opts.language))
 }
 
 func parseFlags() options {
@@ -52,58 +47,25 @@ func parseFlags() options {
 	flag.StringVar(&opts.packageName, "package", "", "Go package name; defaults to WIT package name")
 	flag.StringVar(&opts.filename, "filename", "", "generated filename; defaults to bindings.gen.go")
 	flag.StringVar(&opts.language, "lang", os.Getenv("LANG"), "diagnostic language, for example ru or en")
-	flag.BoolVar(&opts.autoTranslate, "auto-translate", true, "translate missing diagnostic text automatically")
+	flag.BoolVar(&opts.autoTranslate, "auto-translate", false, "deprecated compatibility flag; diagnostics are translated locally")
 	flag.Parse()
 	return opts
 }
 
-func renderGenerationError(generationErr error, autoTranslate bool) {
-	diagnostic := digreyt.Error{
-		CodeName: "GenerationFailed",
-		Severity: digreyt.SeverityError,
-		MessageTranslations: translate.Translations{
-			{Language: "eng", Text: "WIT generation failed"},
-			{Language: "rus", Text: "не удалось сгенерировать Go-код из WIT"},
-		},
-		DescriptionTranslations: []translate.Translations{
-			{{Language: "eng", Text: generationErr.Error()}},
-		},
+func renderGenerationError(generationErr error, language string) {
+	message := "WIT generation failed"
+	if language == "rus" {
+		message = "не удалось сгенерировать Go-код из WIT"
 	}
-
-	if autoTranslate && translate.Language() != translate.DefaultLanguage {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		localized, err := diagnostic.LocalizeAuto(ctx)
-		if err == nil {
-			diagnostic = localized
-		} else {
-			diagnostic = diagnostic.Localize()
-			diagnostic.Description = []string{
-				generationErr.Error(),
-				fmt.Sprintf("automatic translation unavailable: %v", err),
-			}
-		}
-	} else {
-		diagnostic = diagnostic.Localize()
-	}
-
-	arena := digreyt.New("")
-	arena.Add(diagnostic)
-	_ = arena.Render(os.Stderr)
+	fmt.Fprintf(os.Stderr, "ERROR GenerationFailed: %s\n%s\n", message, generationErr)
 }
 
-func renderSuccess(filename string) {
-	arena := digreyt.New("")
-	arena.Add(digreyt.Error{
-		CodeName: "GenerationComplete",
-		Severity: digreyt.SeveritySuccess,
-		MessageTranslations: translate.Translations{
-			{Language: "eng", Text: "Go bindings generated"},
-			{Language: "rus", Text: "Go bindings сгенерированы"},
-		},
-		Description: []string{filename},
-	})
-	_ = arena.Render(os.Stdout)
+func renderSuccess(filename, language string) {
+	message := "Go bindings generated"
+	if language == "rus" {
+		message = "Go bindings сгенерированы"
+	}
+	fmt.Printf("OK GenerationComplete: %s\n%s\n", message, filename)
 }
 
 func normalizeLanguage(language string) string {
@@ -119,7 +81,7 @@ func normalizeLanguage(language string) string {
 	case "uk":
 		return "ukr"
 	case "", "c", "posix":
-		return translate.DefaultLanguage
+		return "eng"
 	default:
 		return language
 	}

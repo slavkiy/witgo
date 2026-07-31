@@ -485,17 +485,32 @@ func (r *renderer) renderWorld(world *ir.World) error {
 	for _, imported := range imports {
 		fmt.Fprintf(&r.out, "\t%s %s\n", goLocalName(imported.name), imported.interfaceName)
 	}
+	for _, export := range exports {
+		fmt.Fprintf(&r.out, "\t%s %s\n", goName(export.name), export.interfaceName)
+	}
 	fmt.Fprintln(&r.out, "}")
 	fmt.Fprintln(&r.out)
 
+	for _, export := range exports {
+		fmt.Fprintf(&r.out, "type %s struct {\n", export.clientName(worldName))
+		fmt.Fprintln(&r.out, "\truntime runtimeCaller")
+		fmt.Fprintln(&r.out, "}")
+		fmt.Fprintln(&r.out)
+	}
+
 	fmt.Fprintf(&r.out, "func Open%s(filename string%s) (*%s, error) {\n", worldName, r.importParams(imports), worldName)
+	fmt.Fprintf(&r.out, "\treturn Open%sWithOptions(filename, witgo.RuntimeOptions{}%s)\n", worldName, r.importArgs(imports))
+	fmt.Fprintln(&r.out, "}")
+	fmt.Fprintln(&r.out)
+
+	fmt.Fprintf(&r.out, "func Open%sWithOptions(filename string, _witgoOptions witgo.RuntimeOptions%s) (*%s, error) {\n", worldName, r.importParams(imports), worldName)
 	for _, imported := range imports {
 		field := goLocalName(imported.name)
 		fmt.Fprintf(&r.out, "\tif %s == nil {\n", field)
 		fmt.Fprintf(&r.out, "\t\treturn nil, fmt.Errorf(%q)\n", world.Name+" import "+imported.name+" is nil")
 		fmt.Fprintln(&r.out, "\t}")
 	}
-	fmt.Fprintln(&r.out, "\truntime, err := witgo.LoadRuntime(filename)")
+	fmt.Fprintln(&r.out, "\truntime, err := witgo.LoadRuntimeWithOptions(filename, _witgoOptions)")
 	fmt.Fprintln(&r.out, "\tif err != nil {")
 	fmt.Fprintln(&r.out, "\t\treturn nil, err")
 	fmt.Fprintln(&r.out, "\t}")
@@ -518,19 +533,22 @@ func (r *renderer) renderWorld(world *ir.World) error {
 		field := goLocalName(imported.name)
 		fmt.Fprintf(&r.out, ", %s: %s", field, field)
 	}
+	for _, export := range exports {
+		fmt.Fprintf(&r.out, ", %s: &%s{runtime: runtime}", goName(export.name), export.clientName(worldName))
+	}
 	fmt.Fprintln(&r.out, "}, nil")
 	fmt.Fprintln(&r.out, "}")
 	fmt.Fprintln(&r.out)
 
 	for _, export := range exports {
-		fmt.Fprintf(&r.out, "var _ %s = (*%s)(nil)\n", export.interfaceName, worldName)
+		fmt.Fprintf(&r.out, "var _ %s = (*%s)(nil)\n", export.interfaceName, export.clientName(worldName))
 	}
 	if len(exports) > 0 {
 		fmt.Fprintln(&r.out)
 	}
 	for _, export := range exports {
 		for _, fn := range export.functions {
-			if err := r.renderClientMethod(worldName, export.callName, fn); err != nil {
+			if err := r.renderClientMethod(export.clientName(worldName), export.callName, fn); err != nil {
 				return err
 			}
 		}
@@ -548,6 +566,10 @@ type worldInterface struct {
 	interfaceName string
 	callName      string
 	functions     []*ir.Func
+}
+
+func (w worldInterface) clientName(worldName string) string {
+	return goLocalName(worldName + "-" + w.name + "-client")
 }
 
 func (r *renderer) importParams(imports []worldInterface) string {

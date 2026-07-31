@@ -53,7 +53,7 @@ func (mc *ModuleCtx) Call(name string, args ...interface{}) (interface{}, error)
 
 	result, err := fn.Call(mc.Store, args...)
 	if err != nil {
-		return nil, fmt.Errorf("call wasm function %q: %w", name, err)
+		return nil, callError(name, err)
 	}
 
 	return result, nil
@@ -71,7 +71,7 @@ func (mr *ModuleRuntime) Call(name string, args ...interface{}) (interface{}, er
 
 	result, err := fn.Call(mr.Store, args...)
 	if err != nil {
-		return nil, fmt.Errorf("call wasm function %q: %w", name, err)
+		return nil, callError(name, err)
 	}
 
 	return result, nil

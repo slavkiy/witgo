@@ -80,6 +80,30 @@ func LoadRuntimeFromBytes(data []byte) (*Runtime, error)
 
 Подходит для случаев, когда wasm уже был считан заранее или получен по сети, из архива или из embed-ресурса.
 
+## RuntimeOptions и fuel
+
+```go
+type RuntimeOptions struct {
+	Fuel uint64
+}
+
+func LoadRuntimeWithOptions(filename string, options RuntimeOptions) (*Runtime, error)
+func LoadRuntimeFromBytesWithOptions(data []byte, options RuntimeOptions) (*Runtime, error)
+```
+
+Положительный `Fuel` включает подсчёт инструкций Wasmtime и задаёт общий
+начальный бюджет runtime. При исчерпании `Call` возвращает ошибку, для которой
+`errors.Is(err, ErrFuelExhausted)` истинно. Нулевое значение сохраняет прежнее
+поведение без подсчёта топлива.
+
+```go
+func (r *Runtime) FuelRemaining() (uint64, error)
+func (r *Runtime) SetFuel(fuel uint64) error
+```
+
+`FuelRemaining` читает остаток, `SetFuel` заменяет его. Если runtime был открыт
+без fuel, оба метода возвращают `ErrFuelDisabled`.
+
 ## Runtime.Call
 
 Сигнатура:

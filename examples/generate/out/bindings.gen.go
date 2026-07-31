@@ -63,11 +63,20 @@ type runtimeCaller interface {
 }
 
 type Plugin struct {
+	runtime    runtimeCaller
+	PluginInfo PluginInfo
+}
+
+type pluginPluginInfoClient struct {
 	runtime runtimeCaller
 }
 
 func OpenPlugin(filename string) (*Plugin, error) {
-	runtime, err := witgo.LoadRuntime(filename)
+	return OpenPluginWithOptions(filename, witgo.RuntimeOptions{})
+}
+
+func OpenPluginWithOptions(filename string, _witgoOptions witgo.RuntimeOptions) (*Plugin, error) {
+	runtime, err := witgo.LoadRuntimeWithOptions(filename, _witgoOptions)
 	if err != nil {
 		return nil, err
 	}
@@ -78,12 +87,12 @@ func newPlugin(runtime runtimeCaller) (*Plugin, error) {
 	if runtime == nil {
 		return nil, fmt.Errorf("runtime is nil")
 	}
-	return &Plugin{runtime: runtime}, nil
+	return &Plugin{runtime: runtime, PluginInfo: &pluginPluginInfoClient{runtime: runtime}}, nil
 }
 
-var _ PluginInfo = (*Plugin)(nil)
+var _ PluginInfo = (*pluginPluginInfoClient)(nil)
 
-func (c *Plugin) Metadata() (PluginMetadata, error) {
+func (c *pluginPluginInfoClient) Metadata() (PluginMetadata, error) {
 	value, err := c.runtime.Call("examples:contract/plugin-info@1.0.0#metadata")
 	if err != nil {
 		return *new(PluginMetadata), err

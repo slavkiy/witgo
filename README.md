@@ -111,13 +111,11 @@ go run . \
   -lang ru
 ```
 
-CLI использует [digreyt](https://github.com/slavkiy/digreyt) только при запуске
-генерации. `digreyt` не вшивается в `witgo`, generated-файл или Wasm runtime.
-Автоперевод применяется только к ошибкам; для полностью офлайн-запуска
-передайте `-auto-translate=false`.
+CLI выводит детерминированные локальные сообщения на английском или русском и
+не использует сетевой автоперевод. Флаг `-auto-translate` сохранён как
+устаревший no-op для совместимости.
 
-CLI вынесен в отдельный Go-модуль, потому что текущая версия `digreyt` требует
-Go 1.25.6. Основная библиотека и generated-код продолжают работать на Go 1.24.
+CLI, основная библиотека и generated-код работают на Go 1.18 и новее.
 
 ## Использование Wasm-плагина
 
@@ -139,7 +137,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	metadata, err := plugin.Metadata()
+	metadata, err := plugin.PluginInfo.Metadata()
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -154,6 +152,30 @@ func main() {
 Пользовательский код не вызывает `wasmtime`, не ищет экспортированные функции
 и не читает память Wasm самостоятельно.
 
+### Ограничение выполнения через fuel
+
+Fuel ограничивает число выполняемых Wasm-инструкций и останавливает зависший
+или слишком дорогой плагин:
+
+```go
+plugin, err := contract.OpenPluginWithOptions(
+	"./plugins/plugin.wasm",
+	witgo.RuntimeOptions{Fuel: 1_000_000},
+)
+if err != nil {
+	return err
+}
+_, err = plugin.PluginInfo.Metadata()
+if errors.Is(err, witgo.ErrFuelExhausted) {
+	// Плагин исчерпал бюджет.
+}
+```
+
+Для прямого runtime API используйте `LoadRuntimeWithOptions` или
+`LoadRuntimeFromBytesWithOptions`. Бюджет общий для всех вызовов runtime;
+остаток возвращает `FuelRemaining`, а `SetFuel` заменяет оставшийся бюджет.
+Нулевой `Fuel` отключает учёт топлива и сохраняет прежнее поведение.
+
 ## Что генерируется
 
 | WIT | Generated Go |
@@ -161,7 +183,7 @@ func main() {
 | `package examples:contract@1.0.0` | package metadata constants |
 | `record plugin-metadata` | `PluginMetadata` struct |
 | импортируемый interface | Go interface, который реализует host |
-| экспортируемый interface | Go interface и методы world |
+| экспортируемый interface | Go interface и одноимённое поле world-клиента |
 | `world plugin` | `Plugin`, `OpenPlugin` |
 | `metadata: func()` | `Metadata() (..., error)` |
 
@@ -326,7 +348,7 @@ Description: Resizes uploaded images and creates previews.
   `wasmtime-go/v47`.
 - Component host imports пока не связываются с Wasm.
 - Core Wasm record ABI сейчас основан на JSON и packed `i64`.
-- Generated-файл рассчитан на Go 1.24 и новее.
+- Generated-файл рассчитан на Go 1.18 и новее.
 
 ## Проверка
 
@@ -334,4 +356,4 @@ Description: Resizes uploaded images and creates previews.
 go test ./...
 ```
 
-Проект и generated-примеры проверяются на Go 1.24.
+Проект и generated-примеры рассчитаны на Go 1.18 и новее.

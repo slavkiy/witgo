@@ -109,8 +109,26 @@ if err != nil {
 	return err
 }
 
-metadata, err := plugin.Metadata()
+metadata, err := plugin.PluginInfo.Metadata()
 ```
+
+Каждый экспортированный WIT-интерфейс становится полем world-клиента. Поэтому
+методы сохраняют принадлежность из контракта: `metadata.get` вызывается как
+`plugin.Metadata.Get()`, а не как `plugin.Get()`. Функции, объявленные напрямую
+внутри `world`, остаются методами самого world-клиента.
+
+Чтобы ограничить выполнение плагина, generated package также создаёт
+`Open<World>WithOptions`:
+
+```go
+plugin, err := contract.OpenPluginWithOptions(
+	"./plugins/plugin.wasm",
+	witgo.RuntimeOptions{Fuel: 1_000_000},
+)
+```
+
+Fuel расходуется всеми вызовами world совместно. Исчерпание определяется через
+`errors.Is(err, witgo.ErrFuelExhausted)`.
 
 Прикладному коду достаточно пути к `.wasm` и методов generated world.
 
@@ -309,7 +327,7 @@ if err != nil {
 	return fmt.Errorf("open plugin: %w", err)
 }
 
-metadata, err := plugin.Metadata()
+metadata, err := plugin.PluginInfo.Metadata()
 if err != nil {
 	return fmt.Errorf("read plugin metadata: %w", err)
 }
@@ -336,7 +354,7 @@ func TestMetadata(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	metadata, err := plugin.Metadata()
+	metadata, err := plugin.PluginInfo.Metadata()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -374,9 +392,8 @@ go run . \
   -lang ru
 ```
 
-`digreyt` используется только этим CLI во время генерации. Он не является
-зависимостью generated package. `-auto-translate=false` отключает сетевой
-автоперевод ошибок.
+CLI выводит локальные английские и русские сообщения без сетевого перевода.
+`-auto-translate` сохранён как устаревший no-op для совместимости.
 
 Рекомендуется хранить generated-файл в Git, чтобы изменения публичного API были
 видны в code review.

@@ -58,15 +58,21 @@ world plugin {
 		"type Host interface",
 		"type SSO interface",
 		"type Plugin struct",
+		"type pluginSSOClient struct",
 		"func OpenPlugin",
+		"func OpenPluginWithOptions",
 		"binding userBinding",
 		"func (value User) Save() (bool, error)",
 		`WITPackageID        = "simple:model@1.0.0"`,
 		`runtime.Call("simple:model/sso@1.0.0#get")`,
+		"func (c *pluginSSOClient) Get() (User, error)",
 	} {
 		if !strings.Contains(string(source), expected) {
 			t.Errorf("generated source does not contain %q", expected)
 		}
+	}
+	if normalized := strings.Join(strings.Fields(string(source)), " "); !strings.Contains(normalized, "SSO SSO") {
+		t.Error("generated Plugin does not expose its SSO interface client")
 	}
 	for _, unwanted := range []string{
 		"type Caller interface",
@@ -76,6 +82,7 @@ world plugin {
 		"func LowerUser",
 		"func LiftUser",
 		"map[string]any",
+		"func (c *Plugin) Get()",
 	} {
 		if strings.Contains(string(source), unwanted) {
 			t.Errorf("generated source unexpectedly contains %q", unwanted)
@@ -98,6 +105,59 @@ func TestGenerateRejectsDifferentPackages(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "expected") {
 		t.Fatalf("Generate error = %v, want package mismatch", err)
 	}
+}
+
+func TestGenerateGroupsMethodsByExportedInterface(t *testing.T) {
+	witDir := t.TempDir()
+	outputDir := t.TempDir()
+	contract := `package test:metadata@1.0.0;
+
+interface metadata {
+    record info {
+        name: string,
+        version: string,
+        description: string,
+        author: string,
+        license: string,
+    }
+
+    get: func() -> info;
+}
+
+interface host {
+    process-string: func(value: string) -> string;
+}
+
+world plugin {
+    import host;
+    export metadata;
+}`
+	if err := os.WriteFile(filepath.Join(witDir, "metadata.wit"), []byte(contract), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := Generate(Config{WIT: witDir, Output: outputDir}); err != nil {
+		t.Fatal(err)
+	}
+
+	filename := filepath.Join(outputDir, DefaultFilename)
+	source, err := os.ReadFile(filename)
+	if err != nil {
+		t.Fatal(err)
+	}
+	normalized := strings.Join(strings.Fields(string(source)), " ")
+	for _, expected := range []string{
+		"Metadata Metadata",
+		"func (c *pluginMetadataClient) Get() (Info, error)",
+		`c.runtime.Call("test:metadata/metadata@1.0.0#get")`,
+	} {
+		if !strings.Contains(normalized, expected) {
+			t.Errorf("generated source does not contain %q", expected)
+		}
+	}
+	if strings.Contains(normalized, "func (c *Plugin) Get()") {
+		t.Error("interface method was flattened onto Plugin")
+	}
+	parseGenerated(t, filename, source)
 }
 
 func parseGenerated(t *testing.T, filename string, source []byte) {
