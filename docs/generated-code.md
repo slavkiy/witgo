@@ -123,11 +123,12 @@ metadata, err := plugin.PluginInfo.Metadata()
 ```go
 plugin, err := contract.OpenPluginWithOptions(
 	"./plugins/plugin.wasm",
-	witgo.RuntimeOptions{Fuel: 1_000_000},
+	witgo.RuntimeOptions{FuelPerCall: 1_000_000},
 )
 ```
 
-Fuel расходуется всеми вызовами world совместно. Исчерпание определяется через
+`FuelPerCall` выдаёт новый бюджет каждому вызову. Для намеренно общего бюджета
+можно использовать `Fuel`. Исчерпание определяется через
 `errors.Is(err, witgo.ErrFuelExhausted)`.
 
 Прикладному коду достаточно пути к `.wasm` и методов generated world.
@@ -406,6 +407,7 @@ CLI выводит локальные английские и русские с�
 - record возвращается как JSON в памяти;
 - `i64` содержит offset в младших 32 битах и длину в старших 32 битах.
 
-Generated package скрывает это соглашение от приложения. Стандартный WIT
-Component Model будет доступен после появления нужных component APIs в
-используемой версии `wasmtime-go`.
+Generated package скрывает это соглашение от приложения, но оно остаётся
+собственным ABI witgo, а не стандартным WIT Canonical ABI. Fuel, timeout и
+memory limits этого не меняют. Стандартный WIT Component Model будет доступен
+после появления нужных component APIs в используемой версии `wasmtime-go`.

@@ -3,6 +3,9 @@ package witgo
 import (
 	"errors"
 	"fmt"
+	"time"
+
+	wasmtime "github.com/bytecodealliance/wasmtime-go/v47"
 )
 
 var (
@@ -46,17 +49,7 @@ func (mc *ModuleCtx) Call(name string, args ...interface{}) (interface{}, error)
 		return nil, errors.New("module context is not initialized")
 	}
 
-	fn := mc.Instance.GetFunc(mc.Store, name)
-	if fn == nil {
-		return nil, fmt.Errorf("wasm function %q not found", name)
-	}
-
-	result, err := fn.Call(mc.Store, args...)
-	if err != nil {
-		return nil, callError(name, err)
-	}
-
-	return result, nil
+	return callModule(mc.Store, mc.Instance, mc.limits, name, args...)
 }
 
 func (mr *ModuleRuntime) Call(name string, args ...interface{}) (interface{}, error) {
@@ -64,15 +57,48 @@ func (mr *ModuleRuntime) Call(name string, args ...interface{}) (interface{}, er
 		return nil, errors.New("module runtime is not initialized")
 	}
 
-	fn := mr.Instance.GetFunc(mr.Store, name)
+	return callModule(mr.Store, mr.Instance, mr.limits, name, args...)
+}
+
+func callModule(store *wasmtime.Store, instance *wasmtime.Instance, limits *callLimits, name string, args ...interface{}) (interface{}, error) {
+	if limits != nil {
+		limits.mu.Lock()
+		defer limits.mu.Unlock()
+		if limits.fuelPerCall > 0 {
+			if err := store.SetFuel(limits.fuelPerCall); err != nil {
+				return nil, fmt.Errorf("reset fuel for wasm function %q: %w", name, err)
+			}
+		}
+	}
+
+	fn := instance.GetFunc(store, name)
 	if fn == nil {
 		return nil, fmt.Errorf("wasm function %q not found", name)
 	}
 
-	result, err := fn.Call(mr.Store, args...)
+	stopTimeout := startCallTimeout(store, limits)
+	result, err := fn.Call(store, args...)
+	stopTimeout()
 	if err != nil {
-		return nil, callError(name, err)
+		return nil, callError(name, err, limits != nil && limits.timeout > 0)
 	}
 
 	return result, nil
+}
+
+func startCallTimeout(store *wasmtime.Store, limits *callLimits) func() {
+	if limits == nil || limits.timeout <= 0 {
+		return func() {}
+	}
+	store.SetEpochDeadline(1)
+	done := make(chan struct{})
+	timer := time.AfterFunc(limits.timeout, func() {
+		limits.engine.IncrementEpoch()
+		close(done)
+	})
+	return func() {
+		if !timer.Stop() {
+			<-done
+		}
+	}
 }

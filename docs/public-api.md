@@ -80,21 +80,35 @@ func LoadRuntimeFromBytes(data []byte) (*Runtime, error)
 
 Подходит для случаев, когда wasm уже был считан заранее или получен по сети, из архива или из embed-ресурса.
 
-## RuntimeOptions и fuel
+## RuntimeOptions и ограничения
 
 ```go
 type RuntimeOptions struct {
-	Fuel uint64
+	Fuel            uint64
+	FuelPerCall     uint64
+	Timeout         time.Duration
+	MemoryLimitBytes int64
+	MaxResultBytes  uint64
+	InstanceLimit   int64
 }
 
 func LoadRuntimeWithOptions(filename string, options RuntimeOptions) (*Runtime, error)
 func LoadRuntimeFromBytesWithOptions(data []byte, options RuntimeOptions) (*Runtime, error)
 ```
 
-Положительный `Fuel` включает подсчёт инструкций Wasmtime и задаёт общий
-начальный бюджет runtime. При исчерпании `Call` возвращает ошибку, для которой
-`errors.Is(err, ErrFuelExhausted)` истинно. Нулевое значение сохраняет прежнее
-поведение без подсчёта топлива.
+`FuelPerCall` сбрасывает бюджет перед каждым вызовом; `Fuel` задаёт один
+накопительный бюджет на весь runtime. Эти поля взаимоисключающие. При
+исчерпании `errors.Is(err, ErrFuelExhausted)` истинно.
+
+`Timeout` включает epoch interruption и распознаётся через `ErrCallTimeout`.
+Он прерывает Wasm, но не блокирующий Go host import. `MemoryLimitBytes`
+ограничивает каждую линейную память, `InstanceLimit` - число инстансов в store,
+а `MaxResultBytes` - объём, который `ReadMemory` разрешит скопировать из Wasm.
+Превышение последнего распознаётся через `ErrResultTooLarge`.
+
+Ошибки fuel и timeout представлены `*ExecutionLimitError`: `errors.Is`
+распознаёт соответствующий sentinel, а `errors.As` по цепочке `Unwrap` всё ещё
+может получить исходный `*wasmtime.Trap`.
 
 ```go
 func (r *Runtime) FuelRemaining() (uint64, error)
@@ -102,7 +116,13 @@ func (r *Runtime) SetFuel(fuel uint64) error
 ```
 
 `FuelRemaining` читает остаток, `SetFuel` заменяет его. Если runtime был открыт
-без fuel, оба метода возвращают `ErrFuelDisabled`.
+без fuel, оба метода возвращают `*FuelDisabledError`. Для него одновременно
+работают `errors.Is(err, ErrFuelDisabled)`, `errors.As` и `errors.Unwrap`, поэтому
+исходная ошибка Wasmtime не теряется.
+
+Ни одна из этих настроек не является полной sandbox-моделью: host-память,
+filesystem/network и поведение host imports контролируются отдельно через
+capability-модель приложения.
 
 ## Runtime.Call
 

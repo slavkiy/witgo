@@ -1,6 +1,11 @@
 package witgo
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+)
+
+var ErrResultTooLarge = errors.New("WebAssembly result exceeds configured limit")
 
 // ReadMemory copies bytes from the default exported memory of a core module.
 func (r *Runtime) ReadMemory(offset, length uint32) ([]byte, error) {
@@ -14,6 +19,9 @@ func (r *Runtime) ReadMemory(offset, length uint32) ([]byte, error) {
 func (r *ModuleRuntime) ReadMemory(offset, length uint32) ([]byte, error) {
 	if r == nil || r.Store == nil || r.Instance == nil {
 		return nil, fmt.Errorf("module runtime is not initialized")
+	}
+	if r.limits != nil && r.limits.maxResultBytes > 0 && uint64(length) > r.limits.maxResultBytes {
+		return nil, fmt.Errorf("%w: %d bytes requested, limit is %d", ErrResultTooLarge, length, r.limits.maxResultBytes)
 	}
 	export := r.Instance.GetExport(r.Store, "memory")
 	if export == nil || export.Memory() == nil {

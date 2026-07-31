@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sync"
+	"time"
 
 	ipath "github.com/slavkiy/witgo/internal/path"
 	iwasm "github.com/slavkiy/witgo/internal/wasm"
@@ -18,11 +20,29 @@ var (
 )
 
 // RuntimeOptions controls resource limits for a WebAssembly runtime.
-//
-// Fuel is the initial instruction budget shared by all calls made through the
-// runtime. A zero value disables fuel metering for backwards compatibility.
 type RuntimeOptions struct {
+	// Fuel is the initial cumulative instruction budget. Prefer FuelPerCall
+	// when every invocation should receive an independent budget.
 	Fuel uint64
+	// FuelPerCall resets the instruction budget before every exported call.
+	FuelPerCall uint64
+	// Timeout interrupts WebAssembly execution after this duration. It cannot
+	// interrupt a blocking Go host function.
+	Timeout time.Duration
+	// MemoryLimitBytes limits the size of each linear memory in the store.
+	MemoryLimitBytes int64
+	// MaxResultBytes limits data copied from exported Wasm memory.
+	MaxResultBytes uint64
+	// InstanceLimit limits the number of Wasm instances in the store.
+	InstanceLimit int64
+}
+
+type callLimits struct {
+	engine         *wasmtime.Engine
+	fuelPerCall    uint64
+	timeout        time.Duration
+	maxResultBytes uint64
+	mu             sync.Mutex
 }
 
 type WitgoCtx struct {
@@ -41,12 +61,14 @@ type ModuleCtx struct {
 	Store    *wasmtime.Store
 	Module   *wasmtime.Module
 	Instance *wasmtime.Instance
+	limits   *callLimits
 }
 
 type ModuleRuntime struct {
 	Store    *wasmtime.Store
 	Module   *wasmtime.Module
 	Instance *wasmtime.Instance
+	limits   *callLimits
 }
 
 type ComponentCtx struct {
@@ -89,6 +111,9 @@ func LoadRuntimeFromBytes(data []byte) (*Runtime, error) {
 // LoadRuntimeFromBytesWithOptions loads a WebAssembly runtime from memory with
 // resource limits.
 func LoadRuntimeFromBytesWithOptions(data []byte, options RuntimeOptions) (*Runtime, error) {
+	if err := validateRuntimeOptions(options); err != nil {
+		return nil, err
+	}
 	if !iwasm.IsWasm(data) {
 		return nil, errors.New("data is not a valid WebAssembly binary")
 	}
@@ -163,6 +188,12 @@ func newModuleRuntime(data []byte, options RuntimeOptions) (*ModuleRuntime, erro
 		Store:    store,
 		Module:   module,
 		Instance: instance,
+		limits: &callLimits{
+			engine:         engine,
+			fuelPerCall:    options.FuelPerCall,
+			timeout:        options.Timeout,
+			maxResultBytes: options.MaxResultBytes,
+		},
 	}, nil
 }
 
@@ -193,19 +224,52 @@ func newComponentRuntime(data []byte, options RuntimeOptions) (*ComponentRuntime
 }
 
 func newStore(options RuntimeOptions) (*wasmtime.Engine, *wasmtime.Store, error) {
-	if options.Fuel == 0 {
-		engine := wasmtime.NewEngine()
-		return engine, wasmtime.NewStore(engine), nil
-	}
-
 	config := wasmtime.NewConfig()
-	config.SetConsumeFuel(true)
+	fuelEnabled := options.Fuel > 0 || options.FuelPerCall > 0
+	if fuelEnabled {
+		config.SetConsumeFuel(true)
+	}
+	if options.Timeout > 0 {
+		config.SetEpochInterruption(true)
+	}
 	engine := wasmtime.NewEngineWithConfig(config)
 	store := wasmtime.NewStore(engine)
-	if err := store.SetFuel(options.Fuel); err != nil {
-		return nil, nil, fmt.Errorf("set initial WebAssembly fuel: %w", err)
+	initialFuel := options.Fuel
+	if options.FuelPerCall > 0 {
+		initialFuel = options.FuelPerCall
+	}
+	if fuelEnabled {
+		if err := store.SetFuel(initialFuel); err != nil {
+			return nil, nil, fmt.Errorf("set initial WebAssembly fuel: %w", err)
+		}
+	}
+	if options.MemoryLimitBytes > 0 || options.InstanceLimit > 0 {
+		store.Limiter(limitOrDefault(options.MemoryLimitBytes), -1, limitOrDefault(options.InstanceLimit), -1, -1)
 	}
 	return engine, store, nil
+}
+
+func validateRuntimeOptions(options RuntimeOptions) error {
+	if options.Fuel > 0 && options.FuelPerCall > 0 {
+		return errors.New("RuntimeOptions.Fuel and FuelPerCall cannot be used together")
+	}
+	if options.Timeout < 0 {
+		return errors.New("RuntimeOptions.Timeout cannot be negative")
+	}
+	if options.MemoryLimitBytes < 0 {
+		return errors.New("RuntimeOptions.MemoryLimitBytes cannot be negative")
+	}
+	if options.InstanceLimit < 0 {
+		return errors.New("RuntimeOptions.InstanceLimit cannot be negative")
+	}
+	return nil
+}
+
+func limitOrDefault(value int64) int64 {
+	if value == 0 {
+		return -1
+	}
+	return value
 }
 
 func (r *Runtime) legacyContext() *WitgoCtx {
@@ -229,6 +293,7 @@ func (r *ModuleRuntime) legacyRuntime() *ModuleCtx {
 		Store:    r.Store,
 		Module:   r.Module,
 		Instance: r.Instance,
+		limits:   r.limits,
 	}
 }
 

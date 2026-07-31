@@ -152,15 +152,21 @@ func main() {
 Пользовательский код не вызывает `wasmtime`, не ищет экспортированные функции
 и не читает память Wasm самостоятельно.
 
-### Ограничение выполнения через fuel
+### Лимиты выполнения
 
-Fuel ограничивает число выполняемых Wasm-инструкций и останавливает зависший
-или слишком дорогой плагин:
+Для недоверенных модулей можно одновременно задать отдельный fuel-бюджет на
+каждый вызов, timeout, предел линейной памяти и максимальный размер результата:
 
 ```go
 plugin, err := contract.OpenPluginWithOptions(
 	"./plugins/plugin.wasm",
-	witgo.RuntimeOptions{Fuel: 1_000_000},
+	witgo.RuntimeOptions{
+		FuelPerCall:     1_000_000,
+		Timeout:         2 * time.Second,
+		MemoryLimitBytes: 64 << 20,
+		MaxResultBytes:   1 << 20,
+		InstanceLimit:    1,
+	},
 )
 if err != nil {
 	return err
@@ -171,10 +177,19 @@ if errors.Is(err, witgo.ErrFuelExhausted) {
 }
 ```
 
-Для прямого runtime API используйте `LoadRuntimeWithOptions` или
-`LoadRuntimeFromBytesWithOptions`. Бюджет общий для всех вызовов runtime;
-остаток возвращает `FuelRemaining`, а `SetFuel` заменяет оставшийся бюджет.
-Нулевой `Fuel` отключает учёт топлива и сохраняет прежнее поведение.
+`FuelPerCall` заново выдаёт полный бюджет перед каждым вызовом. Старое поле
+`Fuel` оставлено для сценариев, где нужен один накопительный бюджет на весь
+runtime; одновременно задавать оба поля нельзя. Остаток возвращает
+`FuelRemaining`, а `SetFuel` заменяет его.
+
+Timeout реализован через epoch interruption Wasmtime и ограничивает только
+исполнение Wasm. Он не может прервать зависший Go host import.
+
+Эти лимиты повышают устойчивость, но не являются полноценной песочницей. Они
+не ограничивают host-память, рекурсию через host calls и сами по себе не
+запрещают filesystem/network. Такие возможности должны выдаваться только через
+явные capability-based imports; текущий runtime пока не связывает host imports
+с Wasm.
 
 ## Что генерируется
 
@@ -348,6 +363,8 @@ Description: Resizes uploaded images and creates previews.
   `wasmtime-go/v47`.
 - Component host imports пока не связываются с Wasm.
 - Core Wasm record ABI сейчас основан на JSON и packed `i64`.
+- Fuel, memory limits и timeout не превращают custom core-Wasm ABI в
+  стандартный WIT Canonical ABI и не заменяют capability sandbox.
 - Generated-файл рассчитан на Go 1.18 и новее.
 
 ## Проверка
