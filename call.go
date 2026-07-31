@@ -9,6 +9,9 @@ func (r *Runtime) Call(name string, args ...any) (any, error) {
 	if r == nil || r.bridge == nil {
 		return nil, errors.New("component runtime is not initialized")
 	}
+	if r.bridge.isClosed() {
+		return nil, ErrRuntimeClosed
+	}
 	values, err := r.bridge.call(name, args)
 	if err != nil {
 		return nil, classifyCallError(name, err)

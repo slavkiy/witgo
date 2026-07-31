@@ -22,7 +22,7 @@ func main() {
 	}
 	wasmFile := filepath.Join(filepath.Dir(sourceFile), "..", "plugin", "plugin.wat")
 
-	plugin, err := contract.OpenPlugin(wasmFile, host{})
+	plugin, err := contract.OpenPlugin(wasmFile, contract.PluginImports{Host: host{}})
 	if err != nil {
 		log.Fatal(err)
 	}

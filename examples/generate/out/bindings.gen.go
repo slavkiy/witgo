@@ -51,9 +51,58 @@ type runtimeCaller interface {
 	Close() error
 }
 
+// PluginImports contains all host capabilities required by Plugin.
+type PluginImports struct {
+	Host Host
+}
+
+// PluginPing returns the generated host and plugin function manifest.
+func PluginPing() witgo.Contract {
+	return witgo.Contract{
+		Imports: []string{
+			"examples:contract/host@1.0.0#process-string",
+		},
+		Exports: []string{
+			"examples:contract/plugin-info@1.0.0#metadata",
+		},
+		Signatures: map[string]string{
+			"examples:contract/host@1.0.0#process-string":  "(string)->(string)",
+			"examples:contract/plugin-info@1.0.0#metadata": "()->(record{name:string,version:string,author:string,description:string})",
+		},
+	}
+}
+
+// ValidatePlugin inspects a component without instantiating it or running guest code.
+func ValidatePlugin(filename string) (witgo.ValidationReport, error) {
+	return witgo.ValidateComponent(filename, PluginPing())
+}
+
+// ValidatePluginWithOptions is ValidatePlugin with explicit bridge options.
+func ValidatePluginWithOptions(filename string, options witgo.RuntimeOptions) (witgo.ValidationReport, error) {
+	return witgo.ValidateComponentWithOptions(filename, options, PluginPing())
+}
+
+// CheckPlugin validates a component and returns ErrContractMismatch when it is incompatible.
+func CheckPlugin(filename string) error {
+	report, err := ValidatePlugin(filename)
+	if err != nil {
+		return err
+	}
+	return report.Err()
+}
+
+// CheckPluginWithOptions is CheckPlugin with explicit bridge options.
+func CheckPluginWithOptions(filename string, options witgo.RuntimeOptions) error {
+	report, err := ValidatePluginWithOptions(filename, options)
+	if err != nil {
+		return err
+	}
+	return report.Err()
+}
+
+// Plugin is a client for the plugin WIT world.
 type Plugin struct {
 	runtime    runtimeCaller
-	host       Host
 	PluginInfo PluginInfo
 }
 
@@ -68,12 +117,14 @@ type pluginPluginInfoClient struct {
 	runtime runtimeCaller
 }
 
-func OpenPlugin(filename string, host Host) (*Plugin, error) {
-	return OpenPluginWithOptions(filename, witgo.RuntimeOptions{}, host)
+// OpenPlugin loads a component using the generated contract.
+func OpenPlugin(filename string, imports PluginImports) (*Plugin, error) {
+	return OpenPluginWithOptions(filename, witgo.RuntimeOptions{}, imports)
 }
 
-func OpenPluginWithOptions(filename string, _witgoOptions witgo.RuntimeOptions, host Host) (*Plugin, error) {
-	if host == nil {
+// OpenPluginWithOptions loads a component with runtime options and verifies its function manifest.
+func OpenPluginWithOptions(filename string, _witgoOptions witgo.RuntimeOptions, imports PluginImports) (*Plugin, error) {
+	if imports.Host == nil {
 		return nil, fmt.Errorf("plugin import host is nil")
 	}
 	_witgoImports := []witgo.HostImport{
@@ -87,25 +138,22 @@ func OpenPluginWithOptions(filename string, _witgoOptions witgo.RuntimeOptions, 
 				if err != nil {
 					return nil, err
 				}
-				return host.ProcessString(_witgoArg0), nil
+				return imports.Host.ProcessString(_witgoArg0), nil
 			},
 		},
 	}
-	runtime, err := witgo.LoadRuntimeWithImports(filename, _witgoOptions, _witgoImports)
+	runtime, err := witgo.LoadRuntimeWithContract(filename, _witgoOptions, _witgoImports, PluginPing())
 	if err != nil {
 		return nil, err
 	}
-	return newPlugin(runtime, host)
+	return newPlugin(runtime)
 }
 
-func newPlugin(runtime runtimeCaller, host Host) (*Plugin, error) {
+func newPlugin(runtime runtimeCaller) (*Plugin, error) {
 	if runtime == nil {
 		return nil, fmt.Errorf("runtime is nil")
 	}
-	if host == nil {
-		return nil, fmt.Errorf("plugin import host is nil")
-	}
-	return &Plugin{runtime: runtime, host: host, PluginInfo: &pluginPluginInfoClient{runtime: runtime}}, nil
+	return &Plugin{runtime: runtime, PluginInfo: &pluginPluginInfoClient{runtime: runtime}}, nil
 }
 
 var _ PluginInfo = (*pluginPluginInfoClient)(nil)

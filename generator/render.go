@@ -3,6 +3,7 @@ package generator
 import (
 	"bytes"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"unicode"
@@ -14,6 +15,7 @@ type renderer struct {
 	out        bytes.Buffer
 	interfaces map[string]*ir.Interface
 	records    map[string]*ir.Record
+	namedTypes map[string]any
 	modelFuncs map[string][]*ir.Func
 	exports    map[string]bool
 	emitted    map[string]string
@@ -35,6 +37,7 @@ func Render(file *ir.File, packageName string) ([]byte, error) {
 	r := &renderer{
 		interfaces: make(map[string]*ir.Interface),
 		records:    make(map[string]*ir.Record),
+		namedTypes: make(map[string]any),
 		modelFuncs: make(map[string][]*ir.Func),
 		exports:    make(map[string]bool),
 		emitted:    make(map[string]string),
@@ -105,10 +108,12 @@ func Render(file *ir.File, packageName string) ([]byte, error) {
 
 func (r *renderer) collect(file *ir.File) {
 	for _, decl := range file.Decls {
+		r.collectNamedDecl(decl)
 		switch decl := decl.(type) {
 		case *ir.Interface:
 			r.interfaces[decl.Name] = decl
 			for _, item := range decl.Items {
+				r.collectNamedDecl(item)
 				if record, ok := item.(*ir.Record); ok {
 					r.records[record.Name] = record
 				}
@@ -120,6 +125,7 @@ func (r *renderer) collect(file *ir.File) {
 			r.needsFmt = true
 			r.hasWorld = true
 			for _, item := range decl.Items {
+				r.collectNamedDecl(item)
 				r.inspectWorldItem(item)
 				if export, ok := item.(*ir.Export); ok {
 					if path, ok := export.Extern.(*ir.ExternPath); ok && len(path.Path.Segments) > 0 {
@@ -145,6 +151,21 @@ func (r *renderer) collect(file *ir.File) {
 				r.needsFmt = true
 			}
 		}
+	}
+}
+
+func (r *renderer) collectNamedDecl(decl any) {
+	switch decl := decl.(type) {
+	case *ir.TypeDef:
+		r.namedTypes[decl.Name] = decl
+	case *ir.Record:
+		r.namedTypes[decl.Name] = decl
+	case *ir.Flags:
+		r.namedTypes[decl.Name] = decl
+	case *ir.Enum:
+		r.namedTypes[decl.Name] = decl
+	case *ir.Variant:
+		r.namedTypes[decl.Name] = decl
 	}
 }
 
@@ -460,11 +481,55 @@ func (r *renderer) renderWorld(world *ir.World) error {
 	}
 	worldName := goName(world.Name)
 
+	fmt.Fprintf(&r.out, "// %sImports contains all host capabilities required by %s.\n", worldName, worldName)
+	fmt.Fprintf(&r.out, "type %sImports struct {\n", worldName)
+	for _, imported := range imports {
+		fmt.Fprintf(&r.out, "\t%s %s\n", goName(imported.name), imported.interfaceName)
+	}
+	fmt.Fprintln(&r.out, "}")
+	fmt.Fprintln(&r.out)
+
+	fmt.Fprintf(&r.out, "// %sPing returns the generated host and plugin function manifest.\n", worldName)
+	fmt.Fprintf(&r.out, "func %sPing() witgo.Contract {\n", worldName)
+	fmt.Fprintln(&r.out, "\treturn witgo.Contract{")
+	r.renderFunctionNames("Imports", contractFunctionNames(imports, nil))
+	r.renderFunctionNames("Exports", contractFunctionNames(exports, directFunctions))
+	r.renderFunctionSignatures(contractFunctionSignatures(r, imports, nil), contractFunctionSignatures(r, exports, directFunctions))
+	fmt.Fprintln(&r.out, "\t}")
+	fmt.Fprintln(&r.out, "}")
+	fmt.Fprintln(&r.out)
+
+	fmt.Fprintf(&r.out, "// Validate%s inspects a component without instantiating it or running guest code.\n", worldName)
+	fmt.Fprintf(&r.out, "func Validate%s(filename string) (witgo.ValidationReport, error) {\n", worldName)
+	fmt.Fprintf(&r.out, "\treturn witgo.ValidateComponent(filename, %sPing())\n", worldName)
+	fmt.Fprintln(&r.out, "}")
+	fmt.Fprintln(&r.out)
+
+	fmt.Fprintf(&r.out, "// Validate%sWithOptions is Validate%s with explicit bridge options.\n", worldName, worldName)
+	fmt.Fprintf(&r.out, "func Validate%sWithOptions(filename string, options witgo.RuntimeOptions) (witgo.ValidationReport, error) {\n", worldName)
+	fmt.Fprintf(&r.out, "\treturn witgo.ValidateComponentWithOptions(filename, options, %sPing())\n", worldName)
+	fmt.Fprintln(&r.out, "}")
+	fmt.Fprintln(&r.out)
+
+	fmt.Fprintf(&r.out, "// Check%s validates a component and returns ErrContractMismatch when it is incompatible.\n", worldName)
+	fmt.Fprintf(&r.out, "func Check%s(filename string) error {\n", worldName)
+	fmt.Fprintf(&r.out, "\treport, err := Validate%s(filename)\n", worldName)
+	fmt.Fprintln(&r.out, "\tif err != nil { return err }")
+	fmt.Fprintln(&r.out, "\treturn report.Err()")
+	fmt.Fprintln(&r.out, "}")
+	fmt.Fprintln(&r.out)
+
+	fmt.Fprintf(&r.out, "// Check%sWithOptions is Check%s with explicit bridge options.\n", worldName, worldName)
+	fmt.Fprintf(&r.out, "func Check%sWithOptions(filename string, options witgo.RuntimeOptions) error {\n", worldName)
+	fmt.Fprintf(&r.out, "\treport, err := Validate%sWithOptions(filename, options)\n", worldName)
+	fmt.Fprintln(&r.out, "\tif err != nil { return err }")
+	fmt.Fprintln(&r.out, "\treturn report.Err()")
+	fmt.Fprintln(&r.out, "}")
+	fmt.Fprintln(&r.out)
+
+	fmt.Fprintf(&r.out, "// %s is a client for the %s WIT world.\n", worldName, world.Name)
 	fmt.Fprintf(&r.out, "type %s struct {\n", worldName)
 	fmt.Fprintln(&r.out, "\truntime runtimeCaller")
-	for _, imported := range imports {
-		fmt.Fprintf(&r.out, "\t%s %s\n", goLocalName(imported.name), imported.interfaceName)
-	}
 	for _, export := range exports {
 		fmt.Fprintf(&r.out, "\t%s %s\n", goName(export.name), export.interfaceName)
 	}
@@ -483,42 +548,34 @@ func (r *renderer) renderWorld(world *ir.World) error {
 		fmt.Fprintln(&r.out)
 	}
 
-	fmt.Fprintf(&r.out, "func Open%s(filename string%s) (*%s, error) {\n", worldName, r.importParams(imports), worldName)
-	fmt.Fprintf(&r.out, "\treturn Open%sWithOptions(filename, witgo.RuntimeOptions{}%s)\n", worldName, r.importArgs(imports))
+	fmt.Fprintf(&r.out, "// Open%s loads a component using the generated contract.\n", worldName)
+	fmt.Fprintf(&r.out, "func Open%s(filename string, imports %sImports) (*%s, error) {\n", worldName, worldName, worldName)
+	fmt.Fprintf(&r.out, "\treturn Open%sWithOptions(filename, witgo.RuntimeOptions{}, imports)\n", worldName)
 	fmt.Fprintln(&r.out, "}")
 	fmt.Fprintln(&r.out)
 
-	fmt.Fprintf(&r.out, "func Open%sWithOptions(filename string, _witgoOptions witgo.RuntimeOptions%s) (*%s, error) {\n", worldName, r.importParams(imports), worldName)
+	fmt.Fprintf(&r.out, "// Open%sWithOptions loads a component with runtime options and verifies its function manifest.\n", worldName)
+	fmt.Fprintf(&r.out, "func Open%sWithOptions(filename string, _witgoOptions witgo.RuntimeOptions, imports %sImports) (*%s, error) {\n", worldName, worldName, worldName)
 	for _, imported := range imports {
-		field := goLocalName(imported.name)
-		fmt.Fprintf(&r.out, "\tif %s == nil {\n", field)
+		field := goName(imported.name)
+		fmt.Fprintf(&r.out, "\tif imports.%s == nil {\n", field)
 		fmt.Fprintf(&r.out, "\t\treturn nil, fmt.Errorf(%q)\n", world.Name+" import "+imported.name+" is nil")
 		fmt.Fprintln(&r.out, "\t}")
 	}
-	r.renderHostImportList(imports)
-	fmt.Fprintln(&r.out, "\truntime, err := witgo.LoadRuntimeWithImports(filename, _witgoOptions, _witgoImports)")
+	r.renderHostImportList(imports, "imports")
+	fmt.Fprintf(&r.out, "\truntime, err := witgo.LoadRuntimeWithContract(filename, _witgoOptions, _witgoImports, %sPing())\n", worldName)
 	fmt.Fprintln(&r.out, "\tif err != nil {")
 	fmt.Fprintln(&r.out, "\t\treturn nil, err")
 	fmt.Fprintln(&r.out, "\t}")
-	fmt.Fprintf(&r.out, "\treturn new%s(runtime%s)\n", worldName, r.importArgs(imports))
+	fmt.Fprintf(&r.out, "\treturn new%s(runtime)\n", worldName)
 	fmt.Fprintln(&r.out, "}")
 	fmt.Fprintln(&r.out)
 
-	fmt.Fprintf(&r.out, "func new%s(runtime runtimeCaller%s) (*%s, error) {\n", worldName, r.importParams(imports), worldName)
+	fmt.Fprintf(&r.out, "func new%s(runtime runtimeCaller) (*%s, error) {\n", worldName, worldName)
 	fmt.Fprintln(&r.out, "\tif runtime == nil {")
 	fmt.Fprintln(&r.out, `		return nil, fmt.Errorf("runtime is nil")`)
 	fmt.Fprintln(&r.out, "\t}")
-	for _, imported := range imports {
-		field := goLocalName(imported.name)
-		fmt.Fprintf(&r.out, "\tif %s == nil {\n", field)
-		fmt.Fprintf(&r.out, "\t\treturn nil, fmt.Errorf(%q)\n", world.Name+" import "+imported.name+" is nil")
-		fmt.Fprintln(&r.out, "\t}")
-	}
 	fmt.Fprintf(&r.out, "\treturn &%s{runtime: runtime", worldName)
-	for _, imported := range imports {
-		field := goLocalName(imported.name)
-		fmt.Fprintf(&r.out, ", %s: %s", field, field)
-	}
 	for _, export := range exports {
 		fmt.Fprintf(&r.out, ", %s: &%s{runtime: runtime}", goName(export.name), export.clientName(worldName))
 	}
@@ -547,10 +604,10 @@ func (r *renderer) renderWorld(world *ir.World) error {
 	return nil
 }
 
-func (r *renderer) renderHostImportList(imports []worldInterface) {
+func (r *renderer) renderHostImportList(imports []worldInterface, importsVariable string) {
 	fmt.Fprintln(&r.out, "\t_witgoImports := []witgo.HostImport{")
 	for _, imported := range imports {
-		host := goLocalName(imported.name)
+		host := importsVariable + "." + goName(imported.name)
 		for _, fn := range imported.functions {
 			fmt.Fprintln(&r.out, "\t\t{")
 			fmt.Fprintf(&r.out, "\t\t\tInterface: %s, Function: %s,\n", strconv.Quote(imported.callName), strconv.Quote(fn.Name))
@@ -576,6 +633,141 @@ func (r *renderer) renderHostImportList(imports []worldInterface) {
 	fmt.Fprintln(&r.out, "\t}")
 }
 
+func (r *renderer) renderFunctionNames(field string, names []string) {
+	fmt.Fprintf(&r.out, "\t\t%s: []string{\n", field)
+	for _, name := range names {
+		fmt.Fprintf(&r.out, "\t\t\t%s,\n", strconv.Quote(name))
+	}
+	fmt.Fprintln(&r.out, "\t\t},")
+}
+
+func (r *renderer) renderFunctionSignatures(imports, exports map[string]string) {
+	fmt.Fprintln(&r.out, "\t\tSignatures: map[string]string{")
+	keys := make([]string, 0, len(imports)+len(exports))
+	for name := range imports {
+		keys = append(keys, name)
+	}
+	for name := range exports {
+		keys = append(keys, name)
+	}
+	sort.Strings(keys)
+	for _, name := range keys {
+		signature := imports[name]
+		if signature == "" {
+			signature = exports[name]
+		}
+		fmt.Fprintf(&r.out, "\t\t\t%s: %s,\n", strconv.Quote(name), strconv.Quote(signature))
+	}
+	fmt.Fprintln(&r.out, "\t\t},")
+}
+
+func contractFunctionNames(interfaces []worldInterface, direct []*ir.Func) []string {
+	var names []string
+	for _, iface := range interfaces {
+		for _, function := range iface.functions {
+			name := function.Name
+			if iface.callName != "" {
+				name = iface.callName + "#" + name
+			}
+			names = append(names, name)
+		}
+	}
+	for _, function := range direct {
+		names = append(names, function.Name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+func contractFunctionSignatures(r *renderer, interfaces []worldInterface, direct []*ir.Func) map[string]string {
+	result := make(map[string]string)
+	for _, iface := range interfaces {
+		for _, function := range iface.functions {
+			name := function.Name
+			if iface.callName != "" {
+				name = iface.callName + "#" + name
+			}
+			result[name] = r.contractTypeSignature(function)
+		}
+	}
+	for _, function := range direct {
+		result[function.Name] = r.contractTypeSignature(function)
+	}
+	return result
+}
+
+func (r *renderer) contractTypeSignature(function *ir.Func) string {
+	params := make([]string, 0, len(function.Params))
+	for _, param := range function.Params {
+		params = append(params, r.canonicalType(param.Type, nil))
+	}
+	results := []string{}
+	if function.Result != nil {
+		results = append(results, r.canonicalType(function.Result, nil))
+	}
+	return "(" + strings.Join(params, ",") + ")->(" + strings.Join(results, ",") + ")"
+}
+
+func (r *renderer) canonicalType(typ ir.Type, seen map[string]bool) string {
+	if seen == nil {
+		seen = make(map[string]bool)
+	}
+	switch typ := typ.(type) {
+	case *ir.PrimitiveType:
+		return typ.Name
+	case *ir.NamedType:
+		if seen[typ.Name] {
+			return "recursive<" + typ.Name + ">"
+		}
+		decl := r.namedTypes[typ.Name]
+		if decl == nil {
+			return "named<" + typ.Name + ">"
+		}
+		next := make(map[string]bool, len(seen)+1)
+		for name := range seen {
+			next[name] = true
+		}
+		next[typ.Name] = true
+		switch decl := decl.(type) {
+		case *ir.TypeDef:
+			return r.canonicalType(decl.Type, next)
+		case *ir.Record:
+			parts := make([]string, 0, len(decl.Fields))
+			for _, field := range decl.Fields {
+				parts = append(parts, field.Name+":"+r.canonicalType(field.Type, next))
+			}
+			return "record{" + strings.Join(parts, ",") + "}"
+		case *ir.Enum:
+			return "enum{" + strings.Join(decl.Cases, ",") + "}"
+		case *ir.Flags:
+			return "flags{" + strings.Join(decl.Flags, ",") + "}"
+		case *ir.Variant:
+			parts := make([]string, 0, len(decl.Cases))
+			for _, item := range decl.Cases {
+				part := item.Name
+				if item.Type != nil {
+					part += ":" + r.canonicalType(item.Type, next)
+				}
+				parts = append(parts, part)
+			}
+			return "variant{" + strings.Join(parts, ",") + "}"
+		}
+	case *ir.GenericType:
+		parts := make([]string, 0, len(typ.Args))
+		for _, arg := range typ.Args {
+			parts = append(parts, r.canonicalType(arg, seen))
+		}
+		return typ.Name + "<" + strings.Join(parts, ",") + ">"
+	case *ir.TupleType:
+		parts := make([]string, 0, len(typ.Items))
+		for _, item := range typ.Items {
+			parts = append(parts, r.canonicalType(item, seen))
+		}
+		return "tuple<" + strings.Join(parts, ",") + ">"
+	}
+	return fmt.Sprintf("unsupported<%T>", typ)
+}
+
 type worldInterface struct {
 	name          string
 	interfaceName string
@@ -585,28 +777,6 @@ type worldInterface struct {
 
 func (w worldInterface) clientName(worldName string) string {
 	return goLocalName(worldName + "-" + w.name + "-client")
-}
-
-func (r *renderer) importParams(imports []worldInterface) string {
-	var params []string
-	for _, imported := range imports {
-		params = append(params, goLocalName(imported.name)+" "+imported.interfaceName)
-	}
-	if len(params) == 0 {
-		return ""
-	}
-	return ", " + strings.Join(params, ", ")
-}
-
-func (r *renderer) importArgs(imports []worldInterface) string {
-	var args []string
-	for _, imported := range imports {
-		args = append(args, goLocalName(imported.name))
-	}
-	if len(args) == 0 {
-		return ""
-	}
-	return ", " + strings.Join(args, ", ")
 }
 
 func (r *renderer) worldParts(world *ir.World) ([]worldInterface, []worldInterface, []*ir.Func, error) {

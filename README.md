@@ -1,4 +1,4 @@
-# witgo
+<p align="center"><img src="assets/art.png" alt="art" width="300"></p>
 
 `witgo` генерирует типизированный Go API из WIT-контракта и позволяет Go-host
 загружать WebAssembly Component плагины, вызывать их exports и предоставлять им
@@ -12,8 +12,8 @@ host-функции.
 
 - Go 1.18 или новее;
 - плагин в формате WebAssembly Component (`.wasm`), а не core Wasm module;
-- Windows amd64 работает из текущего репозитория без установки отдельного
-  runtime. Остальные платформенные файлы формируются release-сборкой.
+- tagged module содержит native shared library для Windows, Linux и macOS на
+  amd64/arm64; отдельная установка и download при запуске не нужны.
 
 ## Установка
 
@@ -116,7 +116,17 @@ import (
 )
 
 func main() {
-	plugin, err := contract.OpenPlugin("./plugins/plugin.component.wasm", pluginHost{})
+	report, err := contract.ValidatePlugin("./plugins/plugin.component.wasm")
+	if err != nil {
+		log.Fatal(err)
+	}
+	if !report.Compatible {
+		log.Fatalf("incompatible plugin: %+v", report)
+	}
+
+	plugin, err := contract.OpenPlugin("./plugins/plugin.component.wasm", contract.PluginImports{
+		Host: pluginHost{},
+	})
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -151,9 +161,21 @@ plugin, err := contract.OpenPluginWithOptions(
 		MaxResultBytes:   1 << 20,
 		InstanceLimit:    8,
 	},
-	pluginHost{},
+	contract.PluginImports{Host: pluginHost{}},
 )
 ```
+
+Если подробный отчёт не нужен, используйте короткую проверку:
+
+```go
+if err := contract.CheckPlugin("./plugins/plugin.component.wasm"); err != nil {
+	log.Fatal(err)
+}
+```
+
+Ошибка от `CheckPlugin` поддерживает `errors.Is(err,
+witgo.ErrContractMismatch)` и `errors.As` в `*witgo.ContractValidationError`.
+Подробное руководство: [валидация компонентов](docs/validation.md).
 
 | Поле | Назначение |
 | --- | --- |
@@ -215,6 +237,22 @@ Description: Resizes uploaded images and creates previews.
 - [Generated package](examples/generate/out/bindings.gen.go)
 - [Component plugin](examples/plugin/plugin.wat)
 - [Go host](examples/server/main.go)
+
+## How it works
+
+`witgo` loads a version-matched Wasmtime DLL/shared library in the Go process.
+There is no child executable, stdin/stdout IPC, separate installation or
+runtime download. The current platform library is already embedded in the Go
+module and is materialized into a content-addressed cache after SHA-256
+verification. Go calls its stable C ABI without CGO.
+
+Every release contains Linux, macOS and Windows libraries for amd64 and arm64,
+raw and packaged SHA-256 checksums, an SPDX SBOM, and GitHub build-provenance
+attestations. Cache installation and concurrent calls are handled explicitly.
+The complete loading order, in-process protocol,
+supported WIT types and lifecycle guarantees are documented in
+[Runtime architecture](docs/architecture.md); reproducible build and artifact
+verification commands are in [Releasing](docs/releasing.md).
 
 ## Проверка
 

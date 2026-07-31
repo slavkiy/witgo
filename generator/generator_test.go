@@ -65,7 +65,17 @@ world plugin {
 		"func (value User) Save() (bool, error)",
 		`WITPackageID        = "simple:model@1.0.0"`,
 		`runtime.Call("simple:model/sso@1.0.0#get")`,
-		`witgo.LoadRuntimeWithImports`,
+		`witgo.LoadRuntimeWithContract`,
+		`type PluginImports struct`,
+		`func PluginPing() witgo.Contract`,
+		`func ValidatePlugin(filename string) (witgo.ValidationReport, error)`,
+		`witgo.ValidateComponent(filename, PluginPing())`,
+		`func CheckPlugin(filename string) error`,
+		`return report.Err()`,
+		`"simple:model/host@1.0.0#current-user"`,
+		`"simple:model/sso@1.0.0#get"`,
+		`"simple:model/sso@1.0.0#save"`,
+		`"()->(record{name:string,age:s64})"`,
 		`Interface: "simple:model/host@1.0.0"`,
 		`Function: "current-user"`,
 		"func (c *Plugin) Close() error",
@@ -80,7 +90,6 @@ world plugin {
 	}
 	for _, unwanted := range []string{
 		"type Caller interface",
-		"type PluginImports struct",
 		"type PluginClient struct",
 		"func NewPlugin",
 		"func LowerUser",
@@ -157,7 +166,7 @@ world plugin {
 		`c.runtime.Call("test:metadata/metadata@1.0.0#get")`,
 		`Interface: "test:metadata/host@1.0.0"`,
 		`Function: "process-string"`,
-		`host.ProcessString(_witgoArg0)`,
+		`imports.Host.ProcessString(_witgoArg0)`,
 	} {
 		if !strings.Contains(normalized, expected) {
 			t.Errorf("generated source does not contain %q", expected)
@@ -167,6 +176,45 @@ world plugin {
 		t.Error("interface method was flattened onto Plugin")
 	}
 	parseGenerated(t, filename, source)
+}
+
+func TestGenerateUsesStableImportsStructForLargeWorld(t *testing.T) {
+	witDir := t.TempDir()
+	outputDir := t.TempDir()
+	contract := `package test:large@1.0.0;
+
+interface cache { get: func(key: string) -> string; }
+interface logger { log: func(message: string); }
+interface clock { now: func() -> u64; }
+interface api { run: func(); }
+
+world plugin {
+    import cache;
+    import logger;
+    import clock;
+    export api;
+}`
+	if err := os.WriteFile(filepath.Join(witDir, "large.wit"), []byte(contract), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := Generate(Config{WIT: witDir, Output: outputDir}); err != nil {
+		t.Fatal(err)
+	}
+	source, err := os.ReadFile(filepath.Join(outputDir, DefaultFilename))
+	if err != nil {
+		t.Fatal(err)
+	}
+	normalized := strings.Join(strings.Fields(string(source)), " ")
+	for _, expected := range []string{
+		"type PluginImports struct { Cache Cache Logger Logger Clock Clock }",
+		"func OpenPlugin(filename string, imports PluginImports) (*Plugin, error)",
+		"func OpenPluginWithOptions(filename string, _witgoOptions witgo.RuntimeOptions, imports PluginImports) (*Plugin, error)",
+	} {
+		if !strings.Contains(normalized, expected) {
+			t.Errorf("generated source does not contain %q", expected)
+		}
+	}
+	parseGenerated(t, filepath.Join(outputDir, DefaultFilename), source)
 }
 
 func parseGenerated(t *testing.T, filename string, source []byte) {

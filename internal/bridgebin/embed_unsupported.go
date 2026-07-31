@@ -3,3 +3,4 @@
 package bridgebin
 
 var compressedBridge []byte
+const expectedBridgeSHA256 = ""

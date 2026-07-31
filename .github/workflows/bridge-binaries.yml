@@ -2,6 +2,8 @@ name: bridge-binaries
 
 permissions:
   contents: write
+  id-token: write
+  attestations: write
 
 on:
   workflow_dispatch:
@@ -16,36 +18,60 @@ jobs:
         include:
           - runner: ubuntu-latest
             platform: linux_amd64
-            binary: witgo-component-host
+            binary: libwitgo_bridge.so
+            extension: .so
           - runner: ubuntu-24.04-arm
             platform: linux_arm64
-            binary: witgo-component-host
+            binary: libwitgo_bridge.so
+            extension: .so
           - runner: macos-15-intel
             platform: darwin_amd64
-            binary: witgo-component-host
+            binary: libwitgo_bridge.dylib
+            extension: .dylib
           - runner: macos-14
             platform: darwin_arm64
-            binary: witgo-component-host
+            binary: libwitgo_bridge.dylib
+            extension: .dylib
           - runner: windows-latest
             platform: windows_amd64
-            binary: witgo-component-host.exe
+            binary: witgo_bridge.dll
+            extension: .dll
           - runner: windows-11-arm
             platform: windows_arm64
-            binary: witgo-component-host.exe
+            binary: witgo_bridge.dll
+            extension: .dll
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
       - name: Build bridge
         working-directory: bridge
-        run: cargo build --locked --release
+        run: cargo build --locked --release --lib
       - name: Package bridge
         shell: bash
-        run: go run ./scripts/package-bridge.go -input "bridge/target/release/${{ matrix.binary }}" -output "dist/${{ matrix.platform }}${{ startsWith(matrix.platform, 'windows_') && '.exe' || '' }}.gz"
+        run: go run ./scripts/package-bridge.go -input "bridge/target/release/${{ matrix.binary }}" -output "dist/${{ matrix.platform }}${{ matrix.extension }}.gz"
+      - name: Test Go runtime against built bridge
+        shell: bash
+        env:
+          WITGO_COMPONENT_LIBRARY: bridge/target/release/${{ matrix.binary }}
+          WITGO_DISABLE_EMBEDDED_BRIDGE: '1'
+        run: go test ./...
+      - name: Generate bridge SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          file: bridge/target/release/${{ matrix.binary }}
+          format: spdx-json
+          output-file: dist/${{ matrix.platform }}.spdx.json
+          upload-artifact: false
+          upload-release-assets: false
+      - name: Attest bridge artifacts
+        uses: actions/attest@v4
+        with:
+          subject-path: dist/*
       - uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.platform }}
-          path: dist/*.gz
+          path: dist/*
 
   bundle:
     needs: build
@@ -58,27 +84,36 @@ jobs:
           merge-multiple: true
       - name: Verify embedded bridge set
         run: |
-          test -f internal/bridgebin/bin/linux_amd64.gz
-          test -f internal/bridgebin/bin/linux_arm64.gz
-          test -f internal/bridgebin/bin/darwin_amd64.gz
-          test -f internal/bridgebin/bin/darwin_arm64.gz
-          test -f internal/bridgebin/bin/windows_amd64.exe.gz
-          test -f internal/bridgebin/bin/windows_arm64.exe.gz
+          test -f internal/bridgebin/bin/linux_amd64.so.gz
+          test -f internal/bridgebin/bin/linux_arm64.so.gz
+          test -f internal/bridgebin/bin/darwin_amd64.dylib.gz
+          test -f internal/bridgebin/bin/darwin_arm64.dylib.gz
+          test -f internal/bridgebin/bin/windows_amd64.dll.gz
+          test -f internal/bridgebin/bin/windows_arm64.dll.gz
+          find internal/bridgebin/bin -name '*.gz.sha256' -print0 | xargs -0 -n1 sh -c 'cd "$(dirname "$0")" && sha256sum -c "$(basename "$0")"'
           go test ./...
-      - name: Create source bundle with embedded bridges
+      - name: Ensure tagged source contains exact native libraries
+        if: startsWith(github.ref, 'refs/tags/')
+        run: git diff --exit-code -- 'internal/bridgebin/bin/*.gz' 'internal/bridgebin/bin/*.sha256'
+      - name: Commit native libraries to module source
+        if: github.event_name == 'workflow_dispatch' && !startsWith(github.ref, 'refs/tags/')
         run: |
-          tar --exclude=.git -czf "$RUNNER_TEMP/witgo-with-bridges.tar.gz" .
-          cp "$RUNNER_TEMP/witgo-with-bridges.tar.gz" .
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add internal/bridgebin/bin/*.gz internal/bridgebin/bin/*.sha256
+          git diff --cached --quiet || git commit -m "build native component libraries"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
       - uses: actions/upload-artifact@v7
         with:
-          name: witgo-with-embedded-bridges
+          name: witgo-bridge-release-assets
           path: |
             internal/bridgebin/bin/*.gz
-            witgo-with-bridges.tar.gz
+            internal/bridgebin/bin/*.sha256
+            internal/bridgebin/bin/*.spdx.json
       - name: Attach bundle to GitHub release
         if: startsWith(github.ref, 'refs/tags/')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release view "$GITHUB_REF_NAME" || gh release create "$GITHUB_REF_NAME" --generate-notes
-          gh release upload "$GITHUB_REF_NAME" witgo-with-bridges.tar.gz internal/bridgebin/bin/*.gz --clobber
+          gh release upload "$GITHUB_REF_NAME" internal/bridgebin/bin/*.gz internal/bridgebin/bin/*.sha256 internal/bridgebin/bin/*.spdx.json
