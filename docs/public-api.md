@@ -60,7 +60,7 @@ type RuntimeOptions struct {
 }
 ```
 
-`Fuel` — общий остаток Store. `FuelPerCall` сбрасывает budget перед каждым
+`Fuel` - общий остаток Store. `FuelPerCall` сбрасывает budget перед каждым
 export call. `Timeout` прерывает Wasm epoch interrupt, но не блокирующий host
 callback. Memory и instance limits применяются внутри Store. `MaxResultBytes`
 ограничивает сообщения постоянного Go↔bridge канала.
@@ -69,11 +69,11 @@ callback. Memory и instance limits применяются внутри Store. `
 
 ## Errors
 
-- `ErrCoreModule` — передан core module вместо Component.
-- `ErrFuelDisabled` — fuel не был включён.
-- `ErrFuelExhausted` — Wasmtime остановил call по fuel.
-- `ErrCallTimeout` — epoch deadline остановил call.
-- `ErrResultTooLarge` — сообщение превысило configured limit.
+- `ErrCoreModule` - передан core module вместо Component.
+- `ErrFuelDisabled` - fuel не был включён.
+- `ErrFuelExhausted` - Wasmtime остановил call по fuel.
+- `ErrCallTimeout` - epoch deadline остановил call.
+- `ErrResultTooLarge` - сообщение превысило configured limit.
 - `ExecutionLimitError` и `FuelDisabledError` сохраняют исходную причину через
   `Unwrap` и поддерживают `errors.Is`.
 

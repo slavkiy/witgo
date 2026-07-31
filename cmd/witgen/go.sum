@@ -1,6 +1,0 @@
-github.com/bytecodealliance/wasmtime-go/v47 v47.0.0 h1:PAe4o7Mq1VjSx81Dc+V4w1XvxLouFTB384N4ZT4o+7k=
-github.com/bytecodealliance/wasmtime-go/v47 v47.0.0/go.mod h1:icJLhTDV7EyKlZpeuBuJl4yoTMqhjUvNv1mewMJUvr4=
-github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
-github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=
-github.com/stretchr/testify v1.8.0 h1:pSgiaMZlXftHpm5L7V1+rVB+AZJydKsMxsQBIJw4PKk=
-gopkg.in/yaml.v3 v3.0.1 h1:fxVm/GzAzEWqLHuvctI91KS9hhNmmWOoWu0XTYJS7CA=
