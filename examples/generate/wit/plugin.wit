@@ -7,6 +7,12 @@ interface plugin-info {
     metadata: func() -> plugin-metadata;
 }
 
+// Capabilities supplied explicitly by the Go host.
+interface host {
+    process-string: func(value: string) -> string;
+}
+
 world plugin {
+    import host;
     export plugin-info;
 }

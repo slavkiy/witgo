@@ -56,7 +56,7 @@ func Render(file *ir.File, packageName string) ([]byte, error) {
 	if r.needsFmt || r.hasWorld {
 		fmt.Fprintln(&out)
 		fmt.Fprintln(&out, "import (")
-		if r.hasWorld && len(r.records) > 0 {
+		if r.hasWorld {
 			fmt.Fprintln(&out, `	"encoding/json"`)
 		}
 		if r.needsFmt || r.hasWorld {
@@ -86,34 +86,14 @@ func Render(file *ir.File, packageName string) ([]byte, error) {
 	}
 	if r.needsFmt {
 		fmt.Fprintln(&out, "func liftValue[T any](value any) (T, error) {")
-		fmt.Fprintln(&out, "\ttyped, ok := value.(T)")
-		fmt.Fprintln(&out, "\tif !ok {")
-		fmt.Fprintln(&out, "\t\tvar zero T")
-		out.WriteString("\t\treturn zero, fmt.Errorf(\"expected %T, got %T\", zero, value)\n")
+		fmt.Fprintln(&out, "\tif typed, ok := value.(T); ok {")
+		fmt.Fprintln(&out, "\t\treturn typed, nil")
 		fmt.Fprintln(&out, "\t}")
-		fmt.Fprintln(&out, "\treturn typed, nil")
-		fmt.Fprintln(&out, "}")
-		fmt.Fprintln(&out)
-	}
-	if r.hasWorld && len(r.records) > 0 {
-		fmt.Fprintln(&out, "func readRecord[T any](runtime runtimeCaller, value any) (T, error) {")
-		fmt.Fprintln(&out, "\tvar packed uint64")
-		fmt.Fprintln(&out, "\tswitch value := value.(type) {")
-		fmt.Fprintln(&out, "\tcase int64:")
-		fmt.Fprintln(&out, "\t\tpacked = uint64(value)")
-		fmt.Fprintln(&out, "\tcase uint64:")
-		fmt.Fprintln(&out, "\t\tpacked = value")
-		fmt.Fprintln(&out, "\tdefault:")
-		fmt.Fprintln(&out, "\t\treturn liftValue[T](value)")
-		fmt.Fprintln(&out, "\t}")
-		fmt.Fprintln(&out, "\tdata, err := runtime.ReadMemory(uint32(packed), uint32(packed>>32))")
-		fmt.Fprintln(&out, "\tif err != nil {")
-		fmt.Fprintln(&out, "\t\tvar zero T")
-		fmt.Fprintln(&out, "\t\treturn zero, err")
-		fmt.Fprintln(&out, "\t}")
+		fmt.Fprintln(&out, "\tdata, err := json.Marshal(value)")
+		fmt.Fprintln(&out, "\tif err != nil { var zero T; return zero, fmt.Errorf(\"encode component value: %w\", err) }")
 		fmt.Fprintln(&out, "\tvar result T")
 		fmt.Fprintln(&out, "\tif err := json.Unmarshal(data, &result); err != nil {")
-		fmt.Fprintln(&out, "\t\treturn result, fmt.Errorf(\"decode wasm record: %w\", err)")
+		fmt.Fprintln(&out, "\t\treturn result, fmt.Errorf(\"decode component value: %w\", err)")
 		fmt.Fprintln(&out, "\t}")
 		fmt.Fprintln(&out, "\treturn result, nil")
 		fmt.Fprintln(&out, "}")
@@ -261,7 +241,7 @@ func (r *renderer) renderFile(file *ir.File) error {
 	if worldCount > 0 {
 		fmt.Fprintln(&r.out, "type runtimeCaller interface {")
 		fmt.Fprintln(&r.out, "\tCall(name string, args ...any) (any, error)")
-		fmt.Fprintln(&r.out, "\tReadMemory(offset, length uint32) ([]byte, error)")
+		fmt.Fprintln(&r.out, "\tClose() error")
 		fmt.Fprintln(&r.out, "}")
 		fmt.Fprintln(&r.out)
 	}
@@ -490,6 +470,11 @@ func (r *renderer) renderWorld(world *ir.World) error {
 	}
 	fmt.Fprintln(&r.out, "}")
 	fmt.Fprintln(&r.out)
+	fmt.Fprintf(&r.out, "func (c *%s) Close() error {\n", worldName)
+	fmt.Fprintln(&r.out, "\tif c == nil || c.runtime == nil { return nil }")
+	fmt.Fprintln(&r.out, "\treturn c.runtime.Close()")
+	fmt.Fprintln(&r.out, "}")
+	fmt.Fprintln(&r.out)
 
 	for _, export := range exports {
 		fmt.Fprintf(&r.out, "type %s struct {\n", export.clientName(worldName))
@@ -510,7 +495,8 @@ func (r *renderer) renderWorld(world *ir.World) error {
 		fmt.Fprintf(&r.out, "\t\treturn nil, fmt.Errorf(%q)\n", world.Name+" import "+imported.name+" is nil")
 		fmt.Fprintln(&r.out, "\t}")
 	}
-	fmt.Fprintln(&r.out, "\truntime, err := witgo.LoadRuntimeWithOptions(filename, _witgoOptions)")
+	r.renderHostImportList(imports)
+	fmt.Fprintln(&r.out, "\truntime, err := witgo.LoadRuntimeWithImports(filename, _witgoOptions, _witgoImports)")
 	fmt.Fprintln(&r.out, "\tif err != nil {")
 	fmt.Fprintln(&r.out, "\t\treturn nil, err")
 	fmt.Fprintln(&r.out, "\t}")
@@ -559,6 +545,35 @@ func (r *renderer) renderWorld(world *ir.World) error {
 		}
 	}
 	return nil
+}
+
+func (r *renderer) renderHostImportList(imports []worldInterface) {
+	fmt.Fprintln(&r.out, "\t_witgoImports := []witgo.HostImport{")
+	for _, imported := range imports {
+		host := goLocalName(imported.name)
+		for _, fn := range imported.functions {
+			fmt.Fprintln(&r.out, "\t\t{")
+			fmt.Fprintf(&r.out, "\t\t\tInterface: %s, Function: %s,\n", strconv.Quote(imported.callName), strconv.Quote(fn.Name))
+			fmt.Fprintln(&r.out, "\t\t\tCall: func(_witgoArgs []any) (any, error) {")
+			fmt.Fprintf(&r.out, "\t\t\t\tif len(_witgoArgs) != %d { return nil, fmt.Errorf(%q, len(_witgoArgs)) }\n", len(fn.Params), "host import "+imported.callName+"#"+fn.Name+" received %d arguments")
+			args := make([]string, 0, len(fn.Params))
+			for index, param := range fn.Params {
+				name := fmt.Sprintf("_witgoArg%d", index)
+				fmt.Fprintf(&r.out, "\t\t\t\t%s, err := liftValue[%s](_witgoArgs[%d])\n", name, r.goType(param.Type), index)
+				fmt.Fprintln(&r.out, "\t\t\t\tif err != nil { return nil, err }")
+				args = append(args, name)
+			}
+			call := host + "." + goName(fn.Name) + "(" + strings.Join(args, ", ") + ")"
+			if fn.Result == nil {
+				fmt.Fprintf(&r.out, "\t\t\t\t%s\n\t\t\t\treturn nil, nil\n", call)
+			} else {
+				fmt.Fprintf(&r.out, "\t\t\t\treturn %s, nil\n", call)
+			}
+			fmt.Fprintln(&r.out, "\t\t\t},")
+			fmt.Fprintln(&r.out, "\t\t},")
+		}
+	}
+	fmt.Fprintln(&r.out, "\t}")
 }
 
 type worldInterface struct {
@@ -825,9 +840,6 @@ func (r *renderer) liftExpr(expression string, typ ir.Type) string {
 }
 
 func (r *renderer) liftRuntimeExpr(runtime, expression string, typ ir.Type) string {
-	if named, ok := typ.(*ir.NamedType); ok && r.records[named.Name] != nil {
-		return "readRecord[" + r.goType(typ) + "](" + runtime + ", " + expression + ")"
-	}
 	return r.liftExpr(expression, typ)
 }
 

@@ -65,6 +65,10 @@ world plugin {
 		"func (value User) Save() (bool, error)",
 		`WITPackageID        = "simple:model@1.0.0"`,
 		`runtime.Call("simple:model/sso@1.0.0#get")`,
+		`witgo.LoadRuntimeWithImports`,
+		`Interface: "simple:model/host@1.0.0"`,
+		`Function: "current-user"`,
+		"func (c *Plugin) Close() error",
 		"func (c *pluginSSOClient) Get() (User, error)",
 	} {
 		if !strings.Contains(string(source), expected) {
@@ -82,6 +86,8 @@ world plugin {
 		"func LowerUser",
 		"func LiftUser",
 		"map[string]any",
+		"ReadMemory(",
+		"readRecord[",
 		"func (c *Plugin) Get()",
 	} {
 		if strings.Contains(string(source), unwanted) {
@@ -149,6 +155,9 @@ world plugin {
 		"Metadata Metadata",
 		"func (c *pluginMetadataClient) Get() (Info, error)",
 		`c.runtime.Call("test:metadata/metadata@1.0.0#get")`,
+		`Interface: "test:metadata/host@1.0.0"`,
+		`Function: "process-string"`,
+		`host.ProcessString(_witgoArg0)`,
 	} {
 		if !strings.Contains(normalized, expected) {
 			t.Errorf("generated source does not contain %q", expected)

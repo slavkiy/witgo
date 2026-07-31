@@ -16,32 +16,17 @@ const (
 )
 
 func liftValue[T any](value any) (T, error) {
-	typed, ok := value.(T)
-	if !ok {
-		var zero T
-		return zero, fmt.Errorf("expected %T, got %T", zero, value)
+	if typed, ok := value.(T); ok {
+		return typed, nil
 	}
-	return typed, nil
-}
-
-func readRecord[T any](runtime runtimeCaller, value any) (T, error) {
-	var packed uint64
-	switch value := value.(type) {
-	case int64:
-		packed = uint64(value)
-	case uint64:
-		packed = value
-	default:
-		return liftValue[T](value)
-	}
-	data, err := runtime.ReadMemory(uint32(packed), uint32(packed>>32))
+	data, err := json.Marshal(value)
 	if err != nil {
 		var zero T
-		return zero, err
+		return zero, fmt.Errorf("encode component value: %w", err)
 	}
 	var result T
 	if err := json.Unmarshal(data, &result); err != nil {
-		return result, fmt.Errorf("decode wasm record: %w", err)
+		return result, fmt.Errorf("decode component value: %w", err)
 	}
 	return result, nil
 }
@@ -57,37 +42,70 @@ type PluginInfo interface {
 	Metadata() (PluginMetadata, error)
 }
 
+type Host interface {
+	ProcessString(value string) string
+}
+
 type runtimeCaller interface {
 	Call(name string, args ...any) (any, error)
-	ReadMemory(offset, length uint32) ([]byte, error)
+	Close() error
 }
 
 type Plugin struct {
 	runtime    runtimeCaller
+	host       Host
 	PluginInfo PluginInfo
+}
+
+func (c *Plugin) Close() error {
+	if c == nil || c.runtime == nil {
+		return nil
+	}
+	return c.runtime.Close()
 }
 
 type pluginPluginInfoClient struct {
 	runtime runtimeCaller
 }
 
-func OpenPlugin(filename string) (*Plugin, error) {
-	return OpenPluginWithOptions(filename, witgo.RuntimeOptions{})
+func OpenPlugin(filename string, host Host) (*Plugin, error) {
+	return OpenPluginWithOptions(filename, witgo.RuntimeOptions{}, host)
 }
 
-func OpenPluginWithOptions(filename string, _witgoOptions witgo.RuntimeOptions) (*Plugin, error) {
-	runtime, err := witgo.LoadRuntimeWithOptions(filename, _witgoOptions)
+func OpenPluginWithOptions(filename string, _witgoOptions witgo.RuntimeOptions, host Host) (*Plugin, error) {
+	if host == nil {
+		return nil, fmt.Errorf("plugin import host is nil")
+	}
+	_witgoImports := []witgo.HostImport{
+		{
+			Interface: "examples:contract/host@1.0.0", Function: "process-string",
+			Call: func(_witgoArgs []any) (any, error) {
+				if len(_witgoArgs) != 1 {
+					return nil, fmt.Errorf("host import examples:contract/host@1.0.0#process-string received %d arguments", len(_witgoArgs))
+				}
+				_witgoArg0, err := liftValue[string](_witgoArgs[0])
+				if err != nil {
+					return nil, err
+				}
+				return host.ProcessString(_witgoArg0), nil
+			},
+		},
+	}
+	runtime, err := witgo.LoadRuntimeWithImports(filename, _witgoOptions, _witgoImports)
 	if err != nil {
 		return nil, err
 	}
-	return newPlugin(runtime)
+	return newPlugin(runtime, host)
 }
 
-func newPlugin(runtime runtimeCaller) (*Plugin, error) {
+func newPlugin(runtime runtimeCaller, host Host) (*Plugin, error) {
 	if runtime == nil {
 		return nil, fmt.Errorf("runtime is nil")
 	}
-	return &Plugin{runtime: runtime, PluginInfo: &pluginPluginInfoClient{runtime: runtime}}, nil
+	if host == nil {
+		return nil, fmt.Errorf("plugin import host is nil")
+	}
+	return &Plugin{runtime: runtime, host: host, PluginInfo: &pluginPluginInfoClient{runtime: runtime}}, nil
 }
 
 var _ PluginInfo = (*pluginPluginInfoClient)(nil)
@@ -97,7 +115,7 @@ func (c *pluginPluginInfoClient) Metadata() (PluginMetadata, error) {
 	if err != nil {
 		return *new(PluginMetadata), err
 	}
-	result, err := readRecord[PluginMetadata](c.runtime, value)
+	result, err := liftValue[PluginMetadata](value)
 	if err != nil {
 		return *new(PluginMetadata), fmt.Errorf("call examples:contract/plugin-info@1.0.0#metadata: %w", err)
 	}

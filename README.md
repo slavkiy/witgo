@@ -1,342 +1,88 @@
-<p align="center"><img src="assets/art.png" alt="witgo" width="300"></p>
+# witgo
 
-`witgo` генерирует типизированную Go-библиотеку из WIT-контракта. Сервер
-работает с обычными Go-моделями и интерфейсами, а загрузка Wasm, имена экспортов
-и чтение памяти остаются внутри generated-кода.
+`witgo` генерирует типизированный Go API из WIT и запускает плагины как
+стандартные WebAssembly Components. Граница plugin ↔ host использует Component
+Model и Canonical ABI; старый JSON/packed-`i64` ABI удалён.
 
-Минимальная версия Go: **1.24**.
+Минимальная версия — Go 1.18. В Go-проекте нет CGO и зависимости от
+`wasmtime-go`: официальный Wasmtime работает в отдельном Rust bridge. Готовый
+bridge выбирается из `go:embed` по `GOOS/GOARCH` и извлекается в кэш при первом
+запуске.
 
-## Установка
+## Нормальный сценарий
 
-```sh
-go get github.com/slavkiy/witgo
-```
-
-## Быстрый старт
-
-Контракт `wit/types.wit`:
+Контракт:
 
 ```wit
-package examples:contract@1.0.0;
+package test:metadata@1.0.0;
 
-interface types {
-    record plugin-metadata {
+interface metadata {
+    record info {
         name: string,
         version: string,
-        author: string,
         description: string,
+        author: string,
+        license: string,
     }
-}
-```
 
-Контракт `wit/plugin.wit`:
-
-```wit
-package examples:contract@1.0.0;
-
-interface plugin-info {
-    use types.{plugin-metadata};
-
-    metadata: func() -> plugin-metadata;
+    get: func() -> info;
 }
 
-world plugin {
-    export plugin-info;
-}
-```
-
-Запуск генератора:
-
-```go
-package main
-
-import (
-	"log"
-
-	"github.com/slavkiy/witgo"
-)
-
-func main() {
-	err := witgo.Generate(witgo.Config{
-		WIT:     "./wit",
-		Output:  "./internal/contract",
-		Package: "contract",
-	})
-	if err != nil {
-		log.Fatal(err)
-	}
-}
-```
-
-```sh
-go run ./cmd/generate
-```
-
-В `internal/contract/bindings.gen.go` появится готовая библиотека:
-
-```go
-type PluginMetadata struct {
-	Name        string
-	Version     string
-	Author      string
-	Description string
-}
-
-type PluginInfo interface {
-	Metadata() (PluginMetadata, error)
-}
-
-func OpenPlugin(filename string) (*Plugin, error)
-
-func (p *Plugin) Metadata() (PluginMetadata, error)
-```
-
-Generated-файл не нужно редактировать вручную.
-
-Подробное описание всех generated-типов, constructors, imports, методов моделей
-и тестирования находится в
-[документации generated-кода](docs/generated-code.md).
-
-### Диагностика генерации
-
-Если нужен красивый локализованный вывод ошибок, используйте отдельный
-generation-only CLI:
-
-```sh
-cd cmd/witgen
-go run . \
-  -wit ../../examples/generate/wit \
-  -out ../../examples/generate/out \
-  -package contract \
-  -lang ru
-```
-
-CLI выводит детерминированные локальные сообщения на английском или русском и
-не использует сетевой автоперевод. Флаг `-auto-translate` сохранён как
-устаревший no-op для совместимости.
-
-CLI, основная библиотека и generated-код работают на Go 1.18 и новее.
-
-## Использование Wasm-плагина
-
-Сервер импортирует только generated package:
-
-```go
-package main
-
-import (
-	"fmt"
-	"log"
-
-	contract "example.com/project/internal/contract"
-)
-
-func main() {
-	plugin, err := contract.OpenPlugin("./plugins/plugin.wasm")
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	metadata, err := plugin.PluginInfo.Metadata()
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	fmt.Println("Name:", metadata.Name)
-	fmt.Println("Version:", metadata.Version)
-	fmt.Println("Author:", metadata.Author)
-	fmt.Println("Description:", metadata.Description)
-}
-```
-
-Пользовательский код не вызывает `wasmtime`, не ищет экспортированные функции
-и не читает память Wasm самостоятельно.
-
-### Лимиты выполнения
-
-Для недоверенных модулей можно одновременно задать отдельный fuel-бюджет на
-каждый вызов, timeout, предел линейной памяти и максимальный размер результата:
-
-```go
-plugin, err := contract.OpenPluginWithOptions(
-	"./plugins/plugin.wasm",
-	witgo.RuntimeOptions{
-		FuelPerCall:     1_000_000,
-		Timeout:         2 * time.Second,
-		MemoryLimitBytes: 64 << 20,
-		MaxResultBytes:   1 << 20,
-		InstanceLimit:    1,
-	},
-)
-if err != nil {
-	return err
-}
-_, err = plugin.PluginInfo.Metadata()
-if errors.Is(err, witgo.ErrFuelExhausted) {
-	// Плагин исчерпал бюджет.
-}
-```
-
-`FuelPerCall` заново выдаёт полный бюджет перед каждым вызовом. Старое поле
-`Fuel` оставлено для сценариев, где нужен один накопительный бюджет на весь
-runtime; одновременно задавать оба поля нельзя. Остаток возвращает
-`FuelRemaining`, а `SetFuel` заменяет его.
-
-Timeout реализован через epoch interruption Wasmtime и ограничивает только
-исполнение Wasm. Он не может прервать зависший Go host import.
-
-Эти лимиты повышают устойчивость, но не являются полноценной песочницей. Они
-не ограничивают host-память, рекурсию через host calls и сами по себе не
-запрещают filesystem/network. Такие возможности должны выдаваться только через
-явные capability-based imports; текущий runtime пока не связывает host imports
-с Wasm.
-
-## Что генерируется
-
-| WIT | Generated Go |
-| --- | --- |
-| `package examples:contract@1.0.0` | package metadata constants |
-| `record plugin-metadata` | `PluginMetadata` struct |
-| импортируемый interface | Go interface, который реализует host |
-| экспортируемый interface | Go interface и одноимённое поле world-клиента |
-| `world plugin` | `Plugin`, `OpenPlugin` |
-| `metadata: func()` | `Metadata() (..., error)` |
-
-Package declaration сохраняется в generated-коде:
-
-```go
-const (
-	WITPackageNamespace = "examples"
-	WITPackageName      = "contract"
-	WITPackageVersion   = "1.0.0"
-	WITPackageID        = "examples:contract@1.0.0"
-)
-```
-
-Runtime-имя экспортированной функции строится из полного WIT ID:
-
-```text
-examples:contract/plugin-info@1.0.0#metadata
-```
-
-Если exported-функция принимает модель первым аргументом, generated-код может
-добавить к модели удобный метод. Например:
-
-```wit
-save-user: func(user: user) -> bool;
-```
-
-создаёт:
-
-```go
-saved, err := user.Save()
-```
-
-Связь модели с plugin хранится в приватном поле и не видна пользователю.
-
-## Config
-
-```go
-type Config struct {
-	WIT      string
-	Output   string
-	Package  string
-	Filename string
-}
-```
-
-| Поле | Описание |
-| --- | --- |
-| `WIT` | Путь к `.wit`-файлу или каталогу. Каталог обходится рекурсивно |
-| `Output` | Каталог для generated-кода. По умолчанию текущий каталог |
-| `Package` | Имя Go package. Если пустое, берётся из WIT package |
-| `Filename` | Имя файла. По умолчанию `bindings.gen.go` |
-
-Все найденные WIT-файлы должны относиться к одному package и иметь одинаковую
-версию. Запись generated-файла выполняется атомарно после `go/format`.
-
-Для повторного использования конфигурации:
-
-```go
-generator, err := witgo.NewGenerator(config)
-if err != nil {
-	return err
-}
-return generator.Generate()
-```
-
-## Host imports
-
-WIT import превращается в интерфейс, который должен реализовать сервер:
-
-```wit
 interface host {
-    current-user: func() -> user;
+    process-string: func(value: string) -> string;
 }
 
 world plugin {
     import host;
-    export plugin-info;
+    export metadata;
 }
 ```
 
-Generated-конструктор принимает реализацию напрямую:
+После генерации host реализует обычный Go interface:
 
 ```go
 type host struct{}
 
-func (host) CurrentUser() contract.User {
-	return contract.User{Name: "Server user"}
+func (host) ProcessString(value string) string {
+	return "HOST:" + value
 }
 
-plugin, err := contract.OpenPlugin("plugin.wasm", host{})
+plugin, err := contract.OpenPlugin("plugin.component.wasm", host{})
+if err != nil {
+	log.Fatal(err)
+}
+defer plugin.Close()
+
+info, err := plugin.Metadata.Get()
 ```
 
-Go-реализация import хранится внутри модели world. Фактическое связывание
-component-model host imports пока ограничено возможностями `wasmtime-go/v47`.
+Generated-код сам:
 
-## Core Wasm ABI
+- регистрирует `test:metadata/host@1.0.0#process-string` до instantiation;
+- преобразует аргументы host call в типизированные Go-значения;
+- вызывает export как `plugin.Metadata.Get()`, то есть метод принадлежит модели
+  WIT interface, а не свален в корневой `Plugin`;
+- поднимает WIT record прямо в Go struct без чтения linear memory приложением.
 
-Текущий runtime вызывает **core WebAssembly modules**. Экспорт должен называться
-полным WIT-именем:
+Компонент не получает filesystem, network или другие возможности автоматически.
+Он видит только imports, перечисленные его `world` и переданные generated
+конструктору.
 
-```wat
-(func
-  (export "examples:contract/plugin-info@1.0.0#metadata")
-  (result i64)
-  ...
-)
+## Генерация
+
+Из Go:
+
+```go
+err := witgo.Generate(witgo.Config{
+	WIT:    "./wit",
+	Output: "./internal/contract",
+})
 ```
 
-Для record-результата пример использует простой закрытый ABI:
+Или примером из репозитория:
 
-- record кодируется как JSON в экспортированной памяти `memory`;
-- функция возвращает `i64`;
-- младшие 32 бита содержат offset;
-- старшие 32 бита содержат длину JSON.
-
-Generated library сама читает память и декодирует JSON в Go-модель. Пользователь
-generated package этого уровня не видит.
-
-Полная поддержка стандартного WIT Component Model потребует поддержки вызова
-component exports и регистрации host functions со стороны `wasmtime-go`.
-
-## Примеры
-
-| Пример | Что показывает | Команда |
-| --- | --- | --- |
-| [generate](examples/generate) | Генерация Go package из нескольких WIT-файлов | `go run ./examples/generate` |
-| [generation-errors](examples/generation-errors) | Локализованная ошибка парсинга через optional `witgen` | `cd cmd/witgen && go run . -wit ../../examples/generation-errors/invalid.wit -out /tmp/witgo-invalid -lang ru -auto-translate=false` |
-| [plugin](examples/plugin) | Сборка настоящего core Wasm из WAT | `go run ./examples/plugin` |
-| [server](examples/server) | Загрузка `.wasm` и типизированный вызов `Metadata()` | `go run ./examples/server` |
-
-### Wasm plugin
-
-Полный цикл генерации, сборки плагина и запуска сервера:
-
-```sh
+```powershell
 go run ./examples/generate
-go run ./examples/plugin
 go run ./examples/server
 ```
 
@@ -344,33 +90,104 @@ go run ./examples/server
 
 ```text
 Plugin metadata
-Name: image-resizer
+Name: HOST:image-resizer
 Version: 1.4.0
 Author: Example Team
 Description: Resizes uploaded images and creates previews.
 ```
 
-Полезные исходники:
+[Пример Component WAT](examples/plugin/plugin.wat) действительно вызывает
+`host.process-string`; это не эмуляция вызова на стороне Go.
 
-- [WIT-контракт](examples/generate/wit)
-- [generated library](examples/generate/out/bindings.gen.go)
-- [Wasm-плагин](examples/plugin/plugin.wat)
-- [сервер](examples/server/main.go)
+## Лимиты runtime
 
-## Ограничения
+```go
+plugin, err := contract.OpenPluginWithOptions(
+	"plugin.component.wasm",
+	witgo.RuntimeOptions{
+		FuelPerCall:      1_000_000,
+		Timeout:          2 * time.Second,
+		MemoryLimitBytes: 64 << 20,
+		MaxResultBytes:   1 << 20,
+		InstanceLimit:    8,
+	},
+	host{},
+)
+```
 
-- Component Model exports пока нельзя вызвать через используемый
-  `wasmtime-go/v47`.
-- Component host imports пока не связываются с Wasm.
-- Core Wasm record ABI сейчас основан на JSON и packed `i64`.
-- Fuel, memory limits и timeout не превращают custom core-Wasm ABI в
-  стандартный WIT Canonical ABI и не заменяют capability sandbox.
-- Generated-файл рассчитан на Go 1.18 и новее.
+- `FuelPerCall` выдаёт новый budget каждому export call.
+- `Fuel` задаёт один общий budget на весь runtime. Вместе с `FuelPerCall` его
+  задавать нельзя.
+- `Timeout` использует epoch interruption Wasmtime.
+- `MemoryLimitBytes` ограничивает каждую linear memory.
+- `InstanceLimit` ограничивает instances в Store.
+- `MaxResultBytes` ограничивает сообщения между Go и bridge.
+
+Fuel и timeout распознаются через `errors.Is(err, witgo.ErrFuelExhausted)` и
+`errors.Is(err, witgo.ErrCallTimeout)`.
+
+Это не абсолютная sandbox-модель. Epoch interruption не может прервать зависший
+Go host callback; host-память и рекурсия host calls требуют ограничений самого
+приложения. Filesystem/network безопасны только пока host явно не выдаёт такие
+capabilities.
+
+## Embedded bridge
+
+Runtime ищет bridge в таком порядке:
+
+1. `RuntimeOptions.BridgePath`;
+2. `WITGO_COMPONENT_BRIDGE`;
+3. embedded binary для текущих `GOOS/GOARCH`;
+4. `witgo-component-host` в `PATH`;
+5. локальный `bridge/target/{release,debug}` для разработки.
+
+Поддерживаемый release matrix:
+
+- Windows amd64/arm64;
+- Linux amd64/arm64;
+- macOS amd64/arm64.
+
+Workflow [.github/workflows/bridge-binaries.yml](.github/workflows/bridge-binaries.yml)
+собирает шесть native binaries, сжимает их и создаёт source bundle, в котором
+они уже доступны `go:embed`. Локальная сборка bridge:
+
+```powershell
+cd bridge
+cargo build --locked --release
+```
+
+## Низкоуровневый API
+
+```go
+runtime, err := witgo.LoadRuntimeWithImports(
+	"plugin.component.wasm",
+	witgo.RuntimeOptions{},
+	[]witgo.HostImport{{
+		Interface: "test:metadata/host@1.0.0",
+		Function:  "process-string",
+		Call: func(args []any) (any, error) {
+			return strings.ToUpper(args[0].(string)), nil
+		},
+	}},
+)
+defer runtime.Close()
+
+value, err := runtime.Call("test:metadata/metadata@1.0.0#get")
+```
+
+Для прикладного кода предпочтительнее generated API. Core Wasm modules теперь
+отклоняются с `ErrCoreModule`: плагин должен быть Component binary. Component
+WAT принимается только как удобный формат разработки и тестов.
+
+Сейчас динамический bridge поддерживает числа, `bool`, `string`, records,
+lists и options. Handles/resources, futures, streams и error-context пока
+возвращают явную ошибку. Генератор парсит больше WIT-конструкций, но их runtime
+mapping нужно расширять отдельно и тестировать end-to-end.
 
 ## Проверка
 
-```sh
+```powershell
 go test ./...
+cd bridge
+cargo check --locked
 ```
-
-Проект и generated-примеры рассчитаны на Go 1.18 и новее.

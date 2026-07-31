@@ -1,0 +1,84 @@
+name: bridge-binaries
+
+permissions:
+  contents: write
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            platform: linux_amd64
+            binary: witgo-component-host
+          - runner: ubuntu-24.04-arm
+            platform: linux_arm64
+            binary: witgo-component-host
+          - runner: macos-15-intel
+            platform: darwin_amd64
+            binary: witgo-component-host
+          - runner: macos-14
+            platform: darwin_arm64
+            binary: witgo-component-host
+          - runner: windows-latest
+            platform: windows_amd64
+            binary: witgo-component-host.exe
+          - runner: windows-11-arm
+            platform: windows_arm64
+            binary: witgo-component-host.exe
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build bridge
+        working-directory: bridge
+        run: cargo build --locked --release
+      - name: Package bridge
+        shell: bash
+        run: go run ./scripts/package-bridge.go -input "bridge/target/release/${{ matrix.binary }}" -output "dist/${{ matrix.platform }}${{ startsWith(matrix.platform, 'windows_') && '.exe' || '' }}.gz"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.platform }}
+          path: dist/*.gz
+
+  bundle:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v7
+        with:
+          path: internal/bridgebin/bin
+          merge-multiple: true
+      - name: Verify embedded bridge set
+        run: |
+          test -f internal/bridgebin/bin/linux_amd64.gz
+          test -f internal/bridgebin/bin/linux_arm64.gz
+          test -f internal/bridgebin/bin/darwin_amd64.gz
+          test -f internal/bridgebin/bin/darwin_arm64.gz
+          test -f internal/bridgebin/bin/windows_amd64.exe.gz
+          test -f internal/bridgebin/bin/windows_arm64.exe.gz
+          go test ./...
+      - name: Create source bundle with embedded bridges
+        run: |
+          tar --exclude=.git -czf "$RUNNER_TEMP/witgo-with-bridges.tar.gz" .
+          cp "$RUNNER_TEMP/witgo-with-bridges.tar.gz" .
+      - uses: actions/upload-artifact@v7
+        with:
+          name: witgo-with-embedded-bridges
+          path: |
+            internal/bridgebin/bin/*.gz
+            witgo-with-bridges.tar.gz
+      - name: Attach bundle to GitHub release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$GITHUB_REF_NAME" || gh release create "$GITHUB_REF_NAME" --generate-notes
+          gh release upload "$GITHUB_REF_NAME" witgo-with-bridges.tar.gz internal/bridgebin/bin/*.gz --clobber

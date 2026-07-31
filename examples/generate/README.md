@@ -1,29 +1,16 @@
-# Plugin metadata example
+# Component plugin example
 
-Generate the contract from WIT:
-
-```sh
+```powershell
 go run ./examples/generate
-```
-
-Build the real Wasm plugin and run the server:
-
-```sh
-go run ./examples/plugin
 go run ./examples/server
 ```
 
-The example contains three layers:
+Пример показывает полный путь:
 
-- `generate/wit` declares `plugin-metadata` and the exported `plugin-info`;
-- `plugin/plugin.wat` implements the metadata export and is compiled to
-  `plugin/plugin.wasm`;
-- `server` loads the Wasm file through `contract.OpenPlugin` and prints the
-  typed metadata.
+- WIT объявляет `host.process-string` и exported `plugin-info.metadata`;
+- generated Go package создаёт typed host adapter;
+- стандартный Component из `examples/plugin/plugin.wat` вызывает Go host;
+- server получает `PluginMetadata` через `plugin.PluginInfo.Metadata()`.
 
-The server only imports the generated contract:
-
-```go
-client, err := contract.OpenPlugin("plugin.wasm")
-metadata, err := client.Metadata()
-```
+В production вместо текстового WAT передаётся собранный
+`plugin.component.wasm`.

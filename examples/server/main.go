@@ -9,17 +9,24 @@ import (
 	contract "github.com/slavkiy/witgo/examples/generate/out"
 )
 
+type host struct{}
+
+func (host) ProcessString(value string) string {
+	return "HOST:" + value
+}
+
 func main() {
 	_, sourceFile, _, ok := runtime.Caller(0)
 	if !ok {
 		log.Fatal("cannot resolve server directory")
 	}
-	wasmFile := filepath.Join(filepath.Dir(sourceFile), "..", "plugin", "plugin.wasm")
+	wasmFile := filepath.Join(filepath.Dir(sourceFile), "..", "plugin", "plugin.wat")
 
-	plugin, err := contract.OpenPlugin(wasmFile)
+	plugin, err := contract.OpenPlugin(wasmFile, host{})
 	if err != nil {
 		log.Fatal(err)
 	}
+	defer plugin.Close()
 	metadata, err := plugin.PluginInfo.Metadata()
 	if err != nil {
 		log.Fatal(err)
