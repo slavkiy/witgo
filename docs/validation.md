@@ -30,6 +30,9 @@ Signatures recursively describe primitives, records, lists, tuples, options,
 results, variants, enums and flags. A plugin cannot pass merely by exporting a
 function with the correct name and a different ABI.
 
+Resource ownership appears in signatures as `own` or `borrow`, allowing ABI
+validation without constructing a resource or executing guest code.
+
 ## Detailed reports
 
 ```go

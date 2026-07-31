@@ -213,8 +213,18 @@ Host-функции должны самостоятельно соблюдать
 
 ## Поддерживаемые значения
 
-Runtime проверен для `bool`, чисел, `string`, records, lists и options.
-Resources/handles, futures, streams и `error-context` пока не поддерживаются.
+Runtime проверен для `bool`, чисел, `char`, `string`, records, nested lists,
+type-safe options/results, tuples, enums, flags и variants. Resources, futures,
+streams и `error-context` передаются как
+привязанные к Runtime `witgo.Handle`: их можно вернуть в Component и явно
+закрыть через `Handle.Close`. Чтение payload future/stream из Go пока не входит
+в dynamic handle API.
+
+CI собирает Go и Rust bridge на Linux, macOS и Windows для amd64 и arm64. E2E
+проверяет version handshake, variants, nested lists и resource-контракты.
+
+Полная матрица parser/generator/runtime, эксплуатационные гарантии и известные
+ограничения собраны в [документе возможностей](docs/capabilities.md).
 
 ## Рабочий пример
 
@@ -253,6 +263,7 @@ The complete loading order, in-process protocol,
 supported WIT types and lifecycle guarantees are documented in
 [Runtime architecture](docs/architecture.md); reproducible build and artifact
 verification commands are in [Releasing](docs/releasing.md).
+Release changes are listed in [CHANGELOG.md](CHANGELOG.md).
 
 ## Проверка
 

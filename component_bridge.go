@@ -22,6 +22,7 @@ type componentBridge struct {
 	native         *nativeBridge
 	imports        map[string]HostFunc
 	maxResultBytes uint64
+	handleStates   map[uint64][]*handleState
 	mu             sync.Mutex
 	closed         bool
 }
@@ -42,6 +43,7 @@ type bridgeMessage struct {
 	Imports         []string          `json:"imports,omitempty"`
 	Exports         []string          `json:"exports,omitempty"`
 	Signatures      map[string]string `json:"signatures,omitempty"`
+	Consumed        []uint64          `json:"consumed,omitempty"`
 }
 
 type bridgeImportSpec struct {
@@ -91,7 +93,9 @@ func pingComponentBridge(component string, options RuntimeOptions, imports []Hos
 	clientVersion := witgoVersion()
 	init := map[string]any{
 		"type": "init", "protocol_version": bridgeProtocolVersion,
-		"witgo_version": clientVersion, "component": component, "imports": specs,
+		"witgo_version": clientVersion, "bridge_version": bridgeVersion,
+		"required_features": append([]string(nil), bridgeRequiredFeatures...),
+		"component":         component, "imports": specs,
 		"options": map[string]any{"fuel": options.Fuel, "fuel_per_call": options.FuelPerCall, "timeout_millis": options.Timeout.Milliseconds(), "memory_limit_bytes": options.MemoryLimitBytes, "instance_limit": options.InstanceLimit},
 	}
 	if err := b.write(init); err != nil {
@@ -373,7 +377,12 @@ func (b *componentBridge) call(name string, args []any) ([]any, error) {
 				_ = b.write(map[string]any{"type": "host_result", "error": "host import is not registered"})
 				continue
 			}
-			result, callErr := fn(message.Args)
+			bound, ok := b.bindHandles(message.Args).([]any)
+			if !ok {
+				_ = b.write(map[string]any{"type": "host_result", "error": "host arguments are not an array"})
+				continue
+			}
+			result, callErr := fn(bound)
 			if callErr != nil {
 				_ = b.write(map[string]any{"type": "host_result", "error": callErr.Error()})
 				continue
@@ -386,12 +395,100 @@ func (b *componentBridge) call(name string, args []any) ([]any, error) {
 				return nil, err
 			}
 		case "result":
-			return message.Values, nil
+			b.markHandlesConsumed(message.Consumed)
+			bound, ok := b.bindHandles(message.Values).([]any)
+			if !ok {
+				return nil, errors.New("component bridge result values are not an array")
+			}
+			return bound, nil
 		case "error", "fatal":
 			return nil, messageError(message)
 		default:
 			return nil, fmt.Errorf("unexpected bridge message %q", message.Type)
 		}
+	}
+}
+
+func (b *componentBridge) releaseHandle(id uint64) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.closed {
+		return ErrRuntimeClosed
+	}
+	if err := b.write(map[string]any{"type": "handle_drop", "handle": id}); err != nil {
+		return err
+	}
+	message, err := b.read()
+	if err != nil {
+		return err
+	}
+	if message.Type != "result" {
+		return messageError(message)
+	}
+	delete(b.handleStates, id)
+	return nil
+}
+
+func (b *componentBridge) bindHandles(value any) any {
+	switch value := value.(type) {
+	case []any:
+		result := make([]any, len(value))
+		for index := range value {
+			result[index] = b.bindHandles(value[index])
+		}
+		return result
+	case map[string]any:
+		if rawID, ok := value["$witgo_handle"]; ok {
+			id, err := interfaceUint64(rawID)
+			kind, kindOK := value["kind"].(string)
+			if err == nil && kindOK {
+				owned, _ := value["owned"].(bool)
+				return b.newBoundHandle(handleWire{ID: id, Kind: HandleKind(kind), Owned: owned})
+			}
+		}
+		result := make(map[string]any, len(value))
+		for key, item := range value {
+			result[key] = b.bindHandles(item)
+		}
+		return result
+	default:
+		return value
+	}
+}
+
+func (b *componentBridge) newBoundHandle(wire handleWire) Handle {
+	handle := newHandle(b, wire)
+	if b.handleStates == nil {
+		b.handleStates = make(map[uint64][]*handleState)
+	}
+	b.handleStates[wire.ID] = append(b.handleStates[wire.ID], handle.state)
+	return handle
+}
+
+func (b *componentBridge) markHandlesConsumed(ids []uint64) {
+	for _, id := range ids {
+		for _, state := range b.handleStates[id] {
+			state.mu.Lock()
+			state.closed = true
+			state.mu.Unlock()
+		}
+		delete(b.handleStates, id)
+	}
+}
+
+func interfaceUint64(value any) (uint64, error) {
+	switch value := value.(type) {
+	case json.Number:
+		return parseUint(value.String())
+	case float64:
+		if value < 0 || value != float64(uint64(value)) {
+			return 0, fmt.Errorf("invalid handle identifier %v", value)
+		}
+		return uint64(value), nil
+	case uint64:
+		return value, nil
+	default:
+		return 0, fmt.Errorf("invalid handle identifier %T", value)
 	}
 }
 
@@ -486,6 +583,9 @@ func (b *componentBridge) isClosed() bool {
 func messageError(message bridgeMessage) error {
 	if message.Error == "" {
 		return fmt.Errorf("component bridge returned %q", message.Type)
+	}
+	if strings.Contains(message.Error, "handle") && strings.Contains(message.Error, "closed or unknown") {
+		return fmt.Errorf("%w: %s", ErrHandleClosed, message.Error)
 	}
 	return errors.New(message.Error)
 }

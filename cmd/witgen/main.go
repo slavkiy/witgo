@@ -11,12 +11,11 @@ import (
 )
 
 type options struct {
-	wit           string
-	output        string
-	packageName   string
-	filename      string
-	language      string
-	autoTranslate bool
+	wit         string
+	output      string
+	packageName string
+	filename    string
+	language    string
 }
 
 func main() {
@@ -47,7 +46,6 @@ func parseFlags() options {
 	flag.StringVar(&opts.packageName, "package", "", "Go package name; defaults to WIT package name")
 	flag.StringVar(&opts.filename, "filename", "", "generated filename; defaults to bindings.gen.go")
 	flag.StringVar(&opts.language, "lang", os.Getenv("LANG"), "diagnostic language, for example ru or en")
-	flag.BoolVar(&opts.autoTranslate, "auto-translate", false, "deprecated compatibility flag; diagnostics are translated locally")
 	flag.Parse()
 	return opts
 }

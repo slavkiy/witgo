@@ -3,11 +3,11 @@ package witgo
 import "runtime/debug"
 
 const (
-	bridgeProtocolVersion uint32 = 2
-	bridgeVersion                = "0.1.0"
+	bridgeProtocolVersion uint32 = 3
+	bridgeVersion                = "0.2.0"
 )
 
-var bridgeRequiredFeatures = []string{"contract-ping-v1", "typed-signatures-v1"}
+var bridgeRequiredFeatures = []string{"async-handles-v1", "bidirectional-handshake-v1", "contract-ping-v1", "handle-lifecycle-v1", "option-envelope-v1", "typed-signatures-v1"}
 
 func witgoVersion() string {
 	info, ok := debug.ReadBuildInfo()

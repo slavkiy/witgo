@@ -1,4 +1,8 @@
-# Releasing native libraries
+# Releasing witgo
+
+The Go module and native bridge are released together. A release is valid only
+when their protocol version, bridge version, feature list, and embedded native
+libraries match. The current release version is `v0.2.0`.
 
 Run the `bridge-binaries` workflow manually on the release branch first. Its
 native matrix builds and tests Windows, Linux and macOS shared libraries for
@@ -26,3 +30,14 @@ cargo build --locked --release --lib
 The output is `witgo_bridge.dll`, `libwitgo_bridge.so`, or
 `libwitgo_bridge.dylib`. The Go packager creates deterministic gzip data plus
 checksums for both raw and compressed forms.
+
+Required checks before running the native matrix:
+
+```text
+go test ./...
+go vet ./...
+cd cmd/witgen && go test ./...
+cd ../../bridge && cargo fmt --check
+cargo test --locked
+cargo clippy --locked -- -D warnings
+```

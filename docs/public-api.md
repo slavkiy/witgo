@@ -1,5 +1,8 @@
 # Public API
 
+Сводная таблица поддерживаемых WIT-конструкций и runtime-ограничений находится
+в [«Возможности и ограничения»](capabilities.md).
+
 ## Runtime
 
 `LoadRuntime` и `LoadRuntimeFromBytes` загружают только стандартные WebAssembly
@@ -69,6 +72,37 @@ func (r *Runtime) FuelRemaining() (uint64, error)
 func (r *Runtime) SetFuel(fuel uint64) error
 ```
 
+Live Component Model handles use one runtime-bound value:
+
+```go
+type Handle struct { /* unexported lifecycle state */ }
+
+func (h Handle) ID() uint64
+func (h Handle) Kind() HandleKind
+func (h Handle) IsKind(kind HandleKind) bool
+func (h Handle) Valid() error
+func (h Handle) Owned() bool
+func (h Handle) IsClosed() bool
+func (h Handle) Close() error
+func CloseHandles(handles ...Handle) error
+```
+
+`HandleKind` is one of `HandleResource`, `HandleFuture`, `HandleStream`, or
+`HandleErrorContext`. A handle can only be sent back to the Runtime that
+created it. `Close` invokes `resource_drop`, closes a future/stream, or removes
+an error-context token. Future/stream payload reader and writer operations are
+not part of the dynamic API yet.
+
+Value helpers used by generated bindings:
+
+- `Option[T]`: `Some`, `None`, `OptionFromPointer`, `Get`, `Or`, `Pointer`,
+  `MapOption`, `FlatMapOption`;
+- `Result[T,E]`: `Ok`, `Err`, `GetOK`, `GetErr`, `Or`, `MatchResult`,
+  `MapResult`, `MapResultErr`;
+- `Char`: `NewChar`, `ParseChar`, `Rune`, `String`;
+- `Tuple0` ... `Tuple16`: `NewTupleN`, typed `V0...` fields, `Values` and
+  strict array codecs.
+
 Имя interface export имеет вид
 `namespace:package/interface@version#function`. Direct world functions передают
 только имя функции.
@@ -125,6 +159,7 @@ and the complete resolution order.
 - `ErrBridgeProtocolMismatch` - protocol version or a required feature differs.
 - `ErrBridgeVersionMismatch` - native bridge and Go package versions differ.
 - `ErrContractMismatch` - imports, exports, or structural signatures differ.
+- `ErrHandleClosed` - handle already transferred, closed, or unknown to this Runtime.
 
 - `ErrCoreModule` - передан core module вместо Component.
 - `ErrFuelDisabled` - fuel не был включён.
@@ -133,10 +168,3 @@ and the complete resolution order.
 - `ErrResultTooLarge` - сообщение превысило configured limit.
 - `ExecutionLimitError` и `FuelDisabledError` сохраняют исходную причину через
   `Unwrap` и поддерживают `errors.Is`.
-
-## Совместимость
-
-`WitgoCtx` является alias `Runtime`; `NewEngine` и `NewEngineFromBytes` оставлены
-как короткие compatibility wrappers. Старые `ModuleRuntime`, `ComponentRuntime`
-и публичные объекты `wasmtime-go` удалены. `ReadMemory` оставлен только для
-понятной migration error: Component values не читаются через custom memory ABI.

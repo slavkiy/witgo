@@ -19,6 +19,8 @@ var (
 	ErrBridgeProtocolMismatch = errors.New("component bridge protocol mismatch")
 	ErrBridgeVersionMismatch  = errors.New("component bridge version mismatch")
 	ErrContractMismatch       = errors.New("component function contract mismatch")
+	ErrHandleClosed           = errors.New("component handle is closed or unknown")
+	ErrResultTooLarge         = errors.New("WebAssembly result exceeds configured limit")
 )
 
 // RuntimeOptions controls resource limits for a Component Model runtime.
@@ -65,9 +67,6 @@ type Runtime struct {
 	maxResultBytes uint64
 	temporaryFile  string
 }
-
-// WitgoCtx is kept as a compatibility alias for Runtime.
-type WitgoCtx = Runtime
 
 func LoadRuntime(filename string) (*Runtime, error) {
 	return LoadRuntimeWithOptions(filename, RuntimeOptions{})
@@ -187,9 +186,6 @@ func writeTemporaryComponent(data []byte) (string, error) {
 	}
 	return name, nil
 }
-
-func NewEngine(filename string) (*WitgoCtx, error)      { return LoadRuntime(filename) }
-func NewEngineFromBytes(data []byte) (*WitgoCtx, error) { return LoadRuntimeFromBytes(data) }
 
 func (r *Runtime) Close() error {
 	if r == nil {

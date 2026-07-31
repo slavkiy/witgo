@@ -4,6 +4,7 @@ import (
 	goparser "go/parser"
 	"go/token"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -122,6 +123,21 @@ func TestGenerateRejectsDifferentPackages(t *testing.T) {
 	}
 }
 
+func TestGenerateRejectsGoNameCollision(t *testing.T) {
+	dir := t.TempDir()
+	contract := `package test:collision;
+record foo-bar { value: string }
+record foo--bar { value: string }
+`
+	if err := os.WriteFile(filepath.Join(dir, "collision.wit"), []byte(contract), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err := Generate(Config{WIT: dir, Output: filepath.Join(dir, "out"), Package: "contract"})
+	if err == nil || !strings.Contains(err.Error(), "Go name collision") || !strings.Contains(err.Error(), "FooBar") {
+		t.Fatalf("Generate error = %v, want clear Go name collision", err)
+	}
+}
+
 func TestGenerateGroupsMethodsByExportedInterface(t *testing.T) {
 	witDir := t.TempDir()
 	outputDir := t.TempDir()
@@ -186,7 +202,12 @@ func TestGenerateUsesStableImportsStructForLargeWorld(t *testing.T) {
 interface cache { get: func(key: string) -> string; }
 interface logger { log: func(message: string); }
 interface clock { now: func() -> u64; }
-interface api { run: func(); }
+interface api {
+    enum color { red, green }
+    flags permissions { read, write }
+    variant choice { none, number(u32) }
+    run: func(value: choice) -> list<list<u32>>;
+}
 
 world plugin {
     import cache;
@@ -209,12 +230,158 @@ world plugin {
 		"type PluginImports struct { Cache Cache Logger Logger Clock Clock }",
 		"func OpenPlugin(filename string, imports PluginImports) (*Plugin, error)",
 		"func OpenPluginWithOptions(filename string, _witgoOptions witgo.RuntimeOptions, imports PluginImports) (*Plugin, error)",
+		"type Color string",
+		`ColorGreen Color = "green"`,
+		"func (value Permissions) MarshalJSON() ([]byte, error)",
+		"func (value Choice) MarshalJSON() ([]byte, error)",
+		"func (value *Choice) UnmarshalJSON(data []byte) error",
 	} {
 		if !strings.Contains(normalized, expected) {
 			t.Errorf("generated source does not contain %q", expected)
 		}
 	}
 	parseGenerated(t, filepath.Join(outputDir, DefaultFilename), source)
+}
+
+func TestGenerateComponentHandles(t *testing.T) {
+	dir := t.TempDir()
+	wit := `package test:handles@1.0.0;
+
+interface api {
+    resource file;
+    type completion = future<string>;
+    type chunks = stream<list<u8>>;
+    type failure = error-context;
+    open: func() -> file;
+    wait: func(value: completion) -> failure;
+    consume: func(value: chunks);
+}
+
+world plugin { export api; }
+`
+	if err := os.WriteFile(filepath.Join(dir, "handles.wit"), []byte(wit), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	output := filepath.Join(dir, "out")
+	if err := Generate(Config{WIT: dir, Output: output, Package: "contract"}); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(output, DefaultFilename))
+	if err != nil {
+		t.Fatal(err)
+	}
+	generated := strings.Join(strings.Fields(string(data)), " ")
+	for _, expected := range []string{
+		"type File = witgo.Handle",
+		"type Completion = witgo.Handle",
+		"type Chunks = witgo.Handle",
+		"type Failure = witgo.Handle",
+		"Open() (File, error)",
+		`"test:handles/api@1.0.0#wait": "(future<string>)->(error-context)"`,
+		`"test:handles/api@1.0.0#consume": "(stream<list<u8>>)->()"`,
+	} {
+		if !strings.Contains(generated, expected) {
+			t.Errorf("generated source does not contain %q", expected)
+		}
+	}
+}
+
+func TestGenerateValueTypeHelpers(t *testing.T) {
+	dir := t.TempDir()
+	wit := `package test:values@1.0.0;
+
+interface api {
+    type maybe-name = option<string>;
+    type pair = tuple<char, u32>;
+    type outcome = result<pair, string>;
+    type simple-result = result<string>;
+    type empty-result = result<>;
+    type failure-only = result<_, string>;
+    enum color { red, green }
+    flags permissions { read, write }
+    variant choice { none, text(string), pair(pair) }
+    transform: func(value: maybe-name, pair: pair) -> outcome;
+    collide: func(err: string, output: string) -> string;
+}
+
+world plugin { export api; }
+`
+	if err := os.WriteFile(filepath.Join(dir, "values.wit"), []byte(wit), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	output := filepath.Join(dir, "out")
+	if err := Generate(Config{WIT: dir, Output: output, Package: "contract"}); err != nil {
+		t.Fatal(err)
+	}
+	filename := filepath.Join(output, DefaultFilename)
+	data, err := os.ReadFile(filename)
+	if err != nil {
+		t.Fatal(err)
+	}
+	generated := strings.Join(strings.Fields(string(data)), " ")
+	for _, expected := range []string{
+		"type MaybeName = witgo.Option[string]",
+		"type Pair = witgo.Tuple2[witgo.Char, uint32]",
+		"type Outcome = witgo.Result[Pair, string]",
+		"type SimpleResult = witgo.Result[string, witgo.Unit]",
+		"type EmptyResult = witgo.Result[witgo.Unit, witgo.Unit]",
+		"type FailureOnly = witgo.Result[witgo.Unit, string]",
+		"func ParseColor(value string) (Color, error)",
+		"func ColorValues() []Color",
+		"func (value Permissions) Has(flags Permissions) bool",
+		"func ParsePermissions(names ...string) (Permissions, error)",
+		"func NewChoiceNone() Choice",
+		"func NewChoiceText(payload string) Choice",
+		"func (value Choice) GetText() (string, bool)",
+		"func (value Choice) IsPair() bool",
+	} {
+		if !strings.Contains(generated, expected) {
+			t.Errorf("generated source does not contain %q", expected)
+		}
+	}
+	parseGenerated(t, filename, data)
+
+	repository, err := filepath.Abs("..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	module := "module generated.test/contract\n\ngo 1.18\n\nrequire github.com/slavkiy/witgo v0.0.0\nreplace github.com/slavkiy/witgo => " + filepath.ToSlash(repository) + "\n"
+	if err := os.WriteFile(filepath.Join(output, "go.mod"), []byte(module), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	helperTest := `package contract
+
+import (
+    "encoding/json"
+    "testing"
+)
+
+func TestGeneratedHelpers(t *testing.T) {
+    color, err := ParseColor("green")
+    if err != nil || !color.Valid() || color.String() != "green" { t.Fatalf("color = %q, %v", color, err) }
+    permissions, err := ParsePermissions("read", "write")
+    if err != nil || !permissions.Has(PermissionsRead) { t.Fatalf("permissions = %v, %v", permissions, err) }
+    permissions.Remove(PermissionsRead)
+    if permissions.Has(PermissionsRead) { t.Fatal("removed flag is still set") }
+    empty, err := json.Marshal(Permissions(0))
+    if err != nil || string(empty) != "[]" { t.Fatalf("empty flags = %s, %v", empty, err) }
+    choice := NewChoiceText("hello")
+    if payload, ok := choice.GetText(); !ok || payload != "hello" || !choice.IsText() { t.Fatalf("choice = %#v", choice) }
+}
+`
+	if err := os.WriteFile(filepath.Join(output, "bindings_test.go"), []byte(helperTest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tidy := exec.Command("go", "mod", "tidy")
+	tidy.Dir = output
+	if result, err := tidy.CombinedOutput(); err != nil {
+		t.Fatalf("resolve generated package: %v\n%s", err, result)
+	}
+	command := exec.Command("go", "test", "./...")
+	command.Dir = output
+	if result, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("compile generated package: %v\n%s", err, result)
+	}
 }
 
 func parseGenerated(t *testing.T, filename string, source []byte) {

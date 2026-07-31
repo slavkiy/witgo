@@ -29,20 +29,31 @@ performs a strict version and feature handshake containing `protocol_version`,
 instantiation, the bridge answers a contract `ping` with sorted component
 import/export function names; generated Go bindings compare these names with
 both the WIT manifest and registered host adapters before sending `start`.
+The Go side sends its required bridge version and feature set in `init`; Rust
+rejects either mismatch, while Go independently validates the versions and
+features returned in `pong`. There is no compatibility fallback.
 
 Calls on a Runtime are serialized; separate Runtime values may execute
 concurrently. `Close` drops the Wasmtime state, joins its internal worker
 thread, unloads the library when possible, and is idempotent. Wasm execution
-timeouts use Wasmtime epoch interruption. Unlike the former sidecar design, an
-arbitrary deadlock inside native library code cannot safely be killed without
+timeouts use Wasmtime epoch interruption. An arbitrary deadlock inside native
+library code cannot safely be killed without
 terminating the Go process; this is the tradeoff for in-process execution.
 
 ## Supported values
 
 The codec implements booleans, all WIT integers and floats, `char`, strings,
-lists, maps, records, tuples, variants, enums, options, results and flags.
-Resources/handles, futures, streams and `error-context` remain explicitly
-unsupported.
+lists, records, tuples, variants, enums, options, results and flags.
+Resources, futures, streams and `error-context` use opaque runtime-bound handle
+tokens. The bridge retains the corresponding Wasmtime value, validates its
+kind and Store, transfers `own` values, preserves `borrow` values for the call,
+and explicitly drops/closes retained handles.
+
+Resource types are also included in the pre-instantiation contract manifest.
+The dynamic API can pass future/stream handles between calls and close them,
+but it cannot read or write an arbitrary typed payload. Payload consumption
+requires generated Rust specialization because Wasmtime's type-erased
+`FutureAny` and `StreamAny` only expose conversion to statically typed readers.
 
 ## Security boundary
 

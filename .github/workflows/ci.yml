@@ -1,0 +1,67 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            binary: libwitgo_bridge.so
+          - runner: ubuntu-24.04-arm
+            binary: libwitgo_bridge.so
+          - runner: macos-15-intel
+            binary: libwitgo_bridge.dylib
+          - runner: macos-14
+            binary: libwitgo_bridge.dylib
+          - runner: windows-latest
+            binary: witgo_bridge.dll
+          - runner: windows-11-arm
+            binary: witgo_bridge.dll
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.18.x'
+          cache: true
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy,rustfmt
+      - name: Test Rust bridge
+        working-directory: bridge
+        run: cargo test --locked
+      - name: Lint Rust bridge
+        working-directory: bridge
+        run: cargo clippy --locked -- -D warnings
+      - name: Build Rust bridge
+        working-directory: bridge
+        run: cargo build --locked --lib
+      - name: Test Go packages against current bridge
+        env:
+          WITGO_COMPONENT_LIBRARY: bridge/target/debug/${{ matrix.binary }}
+          WITGO_DISABLE_EMBEDDED_BRIDGE: '1'
+        run: go test ./...
+      - name: Vet Go packages
+        run: go vet ./...
+
+  witgen:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.18.x'
+          cache-dependency-path: |
+            go.sum
+            cmd/witgen/go.sum
+      - run: go test ./...
+        working-directory: cmd/witgen

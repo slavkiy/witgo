@@ -91,6 +91,92 @@ const valueTypesComponent = `(component
   (export "test:types/api@1.0.0" (instance $api))
 )`
 
+const compositeTypesComponent = `(component
+  (core module $m
+    (memory (export "memory") 1)
+    (global $heap (mut i32) (i32.const 1024))
+    (func (export "realloc") (param i32 i32 i32 i32) (result i32)
+      global.get $heap
+      global.get $heap
+      local.get 3
+      i32.add
+      global.set $heap)
+    (func (export "variant-id") (param i32) (result i32)
+      local.get 0)
+    (func (export "list-id") (param i32 i32) (result i32)
+      i32.const 8
+      local.get 0
+      i32.store
+      i32.const 12
+      local.get 1
+      i32.store
+      i32.const 8)
+  )
+  (core instance $i (instantiate $m))
+  (alias core export $i "memory" (core memory $memory))
+  (alias core export $i "realloc" (core func $realloc))
+  (alias core export $i "variant-id" (core func $variant-id))
+  (alias core export $i "list-id" (core func $list-id))
+
+  (type $choice (variant (case "none") (case "some")))
+  (type $matrix (list (list u32)))
+  (func $roundtrip-variant (param "value" $choice) (result $choice)
+    (canon lift (core func $variant-id)))
+  (func $roundtrip-list (param "value" $matrix) (result $matrix)
+    (canon lift (core func $list-id) (memory $memory) (realloc $realloc)))
+  (instance $api
+    (export "choice" (type $choice))
+    (export "matrix" (type $matrix))
+    (export "roundtrip-variant" (func $roundtrip-variant))
+    (export "roundtrip-list" (func $roundtrip-list))
+  )
+  (export "test:composite/api@1.0.0" (instance $api))
+)`
+
+const resourceContractComponent = `(component
+  (import "item" (type $item (sub resource)))
+  (type $use-item (func (param "item" (borrow $item))))
+  (import "use-item" (func (type $use-item)))
+)`
+
+const liveResourceComponent = `(component
+  (core module $drop-module
+    (func (export "drop") (param i32)))
+  (core instance $drop-instance (instantiate $drop-module))
+  (alias core export $drop-instance "drop" (core func $drop))
+  (type $item (resource (rep i32) (dtor (func $drop))))
+  (core func $item-new (canon resource.new $item))
+  (core instance $intrinsics
+    (export "new" (func $item-new)))
+
+  (core module $implementation
+    (import "" "new" (func $new (param i32) (result i32)))
+    (func (export "make") (result i32)
+      i32.const 7
+      call $new)
+    (func (export "value") (param i32) (result i32)
+      local.get 0)
+    (func (export "consume") (param i32)))
+  (core instance $implementation-instance
+    (instantiate $implementation (with "" (instance $intrinsics))))
+  (alias core export $implementation-instance "make" (core func $make))
+  (alias core export $implementation-instance "value" (core func $value))
+  (alias core export $implementation-instance "consume" (core func $consume))
+
+  (type $make-type (func (result (own $item))))
+  (func $make-lifted (type $make-type) (canon lift (core func $make)))
+  (type $value-type (func (param "self" (borrow $item)) (result u32)))
+  (func $value-lifted (type $value-type) (canon lift (core func $value)))
+  (type $consume-type (func (param "self" (own $item))))
+  (func $consume-lifted (type $consume-type) (canon lift (core func $consume)))
+  (instance $api
+    (export "item" (type $item))
+    (export "make" (func $make-lifted))
+    (export "value" (func $value-lifted))
+    (export "consume" (func $consume-lifted)))
+  (export "test:handles/api@1.0.0" (instance $api))
+)`
+
 func TestComponentCallsGoHostImport(t *testing.T) {
 	if _, err := bridgebin.Library(); errors.Is(err, bridgebin.ErrUnavailable) && os.Getenv("WITGO_COMPONENT_LIBRARY") == "" {
 		t.Skip("embedded bridge is not present for this platform")
@@ -168,5 +254,109 @@ func TestComponentValueTypes(t *testing.T) {
 	}
 	if err := runtime.Close(); err != nil {
 		t.Fatalf("second Close: %v", err)
+	}
+}
+
+func TestComponentVariantsAndComplexLists(t *testing.T) {
+	if _, err := bridgebin.Library(); errors.Is(err, bridgebin.ErrUnavailable) && os.Getenv("WITGO_COMPONENT_LIBRARY") == "" {
+		t.Skip("component bridge is not available")
+	}
+	runtime, err := LoadRuntimeFromBytes([]byte(compositeTypesComponent))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = runtime.Close() })
+
+	variant := map[string]any{"case": "some", "value": map[string]any{"none": true}}
+	gotVariant, err := runtime.Call("test:composite/api@1.0.0#roundtrip-variant", variant)
+	if err != nil {
+		t.Fatal(err)
+	}
+	variantObject, ok := gotVariant.(map[string]any)
+	if !ok || variantObject["case"] != "some" {
+		t.Fatalf("variant result = %#v", gotVariant)
+	}
+
+	matrix := []any{[]any{uint32(1), uint32(2)}, []any{}, []any{uint32(3)}}
+	gotMatrix, err := runtime.Call("test:composite/api@1.0.0#roundtrip-list", matrix)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fmt.Sprint(gotMatrix) != "[[1 2] [] [3]]" {
+		t.Fatalf("complex list result = %#v", gotMatrix)
+	}
+}
+
+func TestComponentResourceContractInspection(t *testing.T) {
+	if _, err := bridgebin.Library(); errors.Is(err, bridgebin.ErrUnavailable) && os.Getenv("WITGO_COMPONENT_LIBRARY") == "" {
+		t.Skip("component bridge is not available")
+	}
+	contract, err := InspectComponentBytes([]byte(resourceContractComponent))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !contract.Requires("use-item") {
+		t.Fatalf("resource contract imports = %v", contract.Imports)
+	}
+	if signature, ok := contract.Signature("use-item"); !ok || signature != "(borrow)->()" {
+		t.Fatalf("resource signature = %q, %v", signature, ok)
+	}
+}
+
+func TestComponentLiveResourceHandle(t *testing.T) {
+	if _, err := bridgebin.Library(); errors.Is(err, bridgebin.ErrUnavailable) && os.Getenv("WITGO_COMPONENT_LIBRARY") == "" {
+		t.Skip("component bridge is not available")
+	}
+	runtime, err := LoadRuntimeFromBytes([]byte(liveResourceComponent))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = runtime.Close() })
+
+	value, err := runtime.Call("test:handles/api@1.0.0#make")
+	if err != nil {
+		t.Fatal(err)
+	}
+	handle, ok := value.(Handle)
+	if !ok || handle.Kind() != HandleResource || !handle.Owned() {
+		t.Fatalf("resource result = %#v", value)
+	}
+	result, err := runtime.Call("test:handles/api@1.0.0#value", handle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fmt.Sprint(result) != "7" {
+		t.Fatalf("resource value = %#v", result)
+	}
+	if err := handle.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if !handle.IsClosed() {
+		t.Fatal("closed resource handle is reported open")
+	}
+
+	value, err = runtime.Call("test:handles/api@1.0.0#make")
+	if err != nil {
+		t.Fatal(err)
+	}
+	consumed := value.(Handle)
+	if _, err := runtime.Call("test:handles/api@1.0.0#consume", consumed); err != nil {
+		t.Fatal(err)
+	}
+	if !consumed.IsClosed() {
+		t.Fatal("transferred own resource handle is reported open")
+	}
+}
+
+func TestComponentVersionHandshake(t *testing.T) {
+	if _, err := bridgebin.Library(); errors.Is(err, bridgebin.ErrUnavailable) && os.Getenv("WITGO_COMPONENT_LIBRARY") == "" {
+		t.Skip("component bridge is not available")
+	}
+	contract, err := InspectComponentBytes([]byte("(component)"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(contract.FunctionNames()) != 0 {
+		t.Fatalf("empty component functions = %v", contract.FunctionNames())
 	}
 }

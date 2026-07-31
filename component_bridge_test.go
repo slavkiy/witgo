@@ -10,7 +10,7 @@ import (
 )
 
 func TestValidateBridgeHandshake(t *testing.T) {
-	valid := bridgeMessage{Type: "pong", ProtocolVersion: bridgeProtocolVersion, BridgeVersion: bridgeVersion, WasmtimeVersion: "47.0.2", WitgoVersion: "test", Features: []string{"contract-ping-v1", "typed-signatures-v1"}}
+	valid := bridgeMessage{Type: "pong", ProtocolVersion: bridgeProtocolVersion, BridgeVersion: bridgeVersion, WasmtimeVersion: "47.0.2", WitgoVersion: "test", Features: append([]string(nil), bridgeRequiredFeatures...)}
 	if err := validateBridgeHandshake(valid, "test"); err != nil {
 		t.Fatal(err)
 	}

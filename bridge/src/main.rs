@@ -6,19 +6,32 @@ use std::io::{BufRead, BufReader, BufWriter, Write, stdin, stdout};
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use wasmtime::component::types::ComponentItem;
-use wasmtime::component::{Component, Func, Instance, Linker, Type, Val};
+use wasmtime::component::types::{ComponentFunc, ComponentItem};
+use wasmtime::component::{
+    Component, Func, FutureAny, Instance, Linker, ResourceAny, StreamAny, Type, Val,
+};
 use wasmtime::{Config, Engine, Store, StoreLimits, StoreLimitsBuilder};
 
-const PROTOCOL_VERSION: u32 = 2;
+const PROTOCOL_VERSION: u32 = 3;
 const WASMTIME_VERSION: &str = "47.0.2";
-const FEATURES: &[&str] = &["contract-ping-v1", "typed-signatures-v1"];
+const FEATURES: &[&str] = &[
+    "async-handles-v1",
+    "bidirectional-handshake-v1",
+    "contract-ping-v1",
+    "handle-lifecycle-v1",
+    "option-envelope-v1",
+    "typed-signatures-v1",
+];
 
 #[derive(Deserialize)]
 struct Init {
     protocol_version: u32,
     #[serde(default)]
     witgo_version: String,
+    #[serde(default)]
+    bridge_version: String,
+    #[serde(default)]
+    required_features: Vec<String>,
     component: String,
     #[serde(default)]
     imports: Vec<Import>,
@@ -45,6 +58,7 @@ struct Protocol {
     io: ProtocolIo,
 }
 
+#[allow(dead_code)] // Each crate target uses one transport; lib.rs includes this file.
 enum ProtocolIo {
     Stdio {
         input: BufReader<std::io::Stdin>,
@@ -92,6 +106,49 @@ struct State {
     limits: StoreLimits,
 }
 
+#[derive(Clone)]
+enum StoredHandle {
+    Resource(ResourceAny),
+    Future(FutureAny),
+    Stream(StreamAny),
+    ErrorContext(Val),
+}
+
+#[derive(Default)]
+struct HandleTable {
+    next: u64,
+    values: BTreeMap<u64, StoredHandle>,
+    borrowed: Vec<u64>,
+}
+
+impl HandleTable {
+    fn insert(&mut self, value: StoredHandle) -> u64 {
+        self.next = self
+            .next
+            .checked_add(1)
+            .expect("component handle id overflow");
+        if matches!(&value, StoredHandle::Resource(resource) if !resource.owned()) {
+            self.borrowed.push(self.next);
+        }
+        self.values.insert(self.next, value);
+        self.next
+    }
+
+    fn get(&self, id: u64) -> Result<StoredHandle> {
+        self.values
+            .get(&id)
+            .cloned()
+            .ok_or_else(|| anyhow!("component handle {id} is closed or unknown"))
+    }
+
+    fn remove(&mut self, id: u64) -> Result<StoredHandle> {
+        self.values
+            .remove(&id)
+            .ok_or_else(|| anyhow!("component handle {id} is closed or unknown"))
+    }
+}
+
+#[allow(dead_code)] // Included by the cdylib target, which exposes the C ABI instead.
 fn main() {
     if let Err(error) = run() {
         let message = json!({"type": "fatal", "error": format!("{error:#}")});
@@ -100,6 +157,7 @@ fn main() {
     }
 }
 
+#[allow(dead_code)] // Included by the cdylib target, which uses the channel transport.
 fn run() -> Result<()> {
     let protocol = Arc::new(Mutex::new(Protocol {
         io: ProtocolIo::Stdio {
@@ -131,9 +189,41 @@ fn run_protocol(protocol: Arc<Mutex<Protocol>>) -> Result<()> {
         }))?;
         return Ok(());
     }
+    if init.bridge_version != env!("CARGO_PKG_VERSION") {
+        protocol.lock().unwrap().write(&json!({
+            "type": "error",
+            "error": format!(
+                "incompatible bridge version: Go requires {}, bridge is {}",
+                init.bridge_version, env!("CARGO_PKG_VERSION")
+            ),
+            "protocol_version": PROTOCOL_VERSION,
+            "witgo_version": init.witgo_version,
+            "bridge_version": env!("CARGO_PKG_VERSION"),
+            "wasmtime_version": WASMTIME_VERSION,
+            "features": FEATURES,
+        }))?;
+        return Ok(());
+    }
+    if let Some(feature) = init
+        .required_features
+        .iter()
+        .find(|feature| !FEATURES.contains(&feature.as_str()))
+    {
+        protocol.lock().unwrap().write(&json!({
+            "type": "error",
+            "error": format!("bridge does not support required feature {feature:?}"),
+            "protocol_version": PROTOCOL_VERSION,
+            "witgo_version": init.witgo_version,
+            "bridge_version": env!("CARGO_PKG_VERSION"),
+            "wasmtime_version": WASMTIME_VERSION,
+            "features": FEATURES,
+        }))?;
+        return Ok(());
+    }
 
     let mut config = Config::new();
     config.wasm_component_model(true);
+    config.concurrency_support(true);
     let fuel_enabled = init.options.fuel > 0 || init.options.fuel_per_call > 0;
     config.consume_fuel(fuel_enabled);
     config.epoch_interruption(init.options.timeout_millis > 0);
@@ -158,6 +248,7 @@ fn run_protocol(protocol: Arc<Mutex<Protocol>>) -> Result<()> {
         bail!("expected start after contract ping")
     }
     let mut linker = Linker::<State>::new(&engine);
+    let handles = Arc::new(Mutex::new(HandleTable::default()));
 
     for import in init.imports {
         let mut instance = linker
@@ -166,44 +257,24 @@ fn run_protocol(protocol: Arc<Mutex<Protocol>>) -> Result<()> {
         for function in import.functions {
             let interface_name = import.interface.clone();
             let function_name = function.clone();
-            instance.func_new(&function, move |store, ty, params, results| {
-                (|| -> Result<()> {
-                    let args = params.iter().map(val_to_json).collect::<Result<Vec<_>>>()?;
-                    let request = json!({
-                        "type": "host_call",
-                        "interface": interface_name,
-                        "function": function_name,
-                        "args": args,
-                    });
-                    let mut io = store.data().protocol.lock().unwrap();
-                    io.write(&request)?;
-                    let response = io.read()?;
-                    if response.get("type").and_then(Value::as_str) != Some("host_result") {
-                        bail!("expected host_result response")
-                    }
-                    if let Some(error) = response.get("error").and_then(Value::as_str) {
-                        bail!("host function failed: {error}")
-                    }
-                    let result_types = ty.results().collect::<Vec<_>>();
-                    let values = response
-                        .get("values")
-                        .and_then(Value::as_array)
-                        .ok_or_else(|| anyhow!("host_result.values must be an array"))?;
-                    if values.len() != result_types.len() {
-                        bail!(
-                            "host returned {} results, expected {}",
-                            values.len(),
-                            result_types.len()
-                        )
-                    }
-                    for ((slot, value), result_ty) in
-                        results.iter_mut().zip(values).zip(result_types)
-                    {
-                        *slot = json_to_val(value, &result_ty)?;
-                    }
-                    Ok(())
-                })()
-                .map_err(wasmtime::Error::from_anyhow)
+            let handles = handles.clone();
+            instance.func_new_async(&function, move |store, ty, params, results| {
+                let interface_name = interface_name.clone();
+                let function_name = function_name.clone();
+                let handles = handles.clone();
+                let protocol = store.data().protocol.clone();
+                Box::new(async move {
+                    handle_host_callback(
+                        &protocol,
+                        &interface_name,
+                        &function_name,
+                        &ty,
+                        params,
+                        results,
+                        &handles,
+                    )
+                    .map_err(wasmtime::Error::from_anyhow)
+                })
             })?;
         }
     }
@@ -231,9 +302,9 @@ fn run_protocol(protocol: Arc<Mutex<Protocol>>) -> Result<()> {
         };
         store.set_fuel(initial).map_err(wasmtime_error)?;
     }
-    let instance = linker
-        .instantiate(&mut store, &component)
+    let instance = futures::executor::block_on(linker.instantiate_async(&mut store, &component))
         .map_err(|error| anyhow!("instantiate component: {error:#}"))?;
+    futures::executor::block_on(drop_borrowed_handles(&mut store, &handles));
     protocol.lock().unwrap().write(&json!({
         "type": "ready",
     }))?;
@@ -246,7 +317,19 @@ fn run_protocol(protocol: Arc<Mutex<Protocol>>) -> Result<()> {
         };
         let kind = command.get("type").and_then(Value::as_str).unwrap_or("");
         let response = match kind {
-            "call" => handle_call(&engine, &instance, &mut store, &init.options, &command),
+            "call" => futures::executor::block_on(handle_call(
+                &engine,
+                &instance,
+                &mut store,
+                &init.options,
+                &command,
+                &handles,
+            )),
+            "handle_drop" => match command.get("handle").and_then(Value::as_u64) {
+                Some(id) => futures::executor::block_on(drop_handle(&mut store, &handles, id))
+                    .map(|_| json!({"type": "result", "value": null})),
+                None => Err(anyhow!("handle_drop.handle must be an unsigned integer")),
+            },
             "fuel" => store
                 .get_fuel()
                 .map(|fuel| json!({"type": "result", "value": fuel}))
@@ -258,7 +341,10 @@ fn run_protocol(protocol: Arc<Mutex<Protocol>>) -> Result<()> {
                     .map(|_| json!({"type": "result", "value": null})),
                 None => Err(anyhow!("set_fuel.fuel must be an unsigned integer")),
             },
-            "close" => return Ok(()),
+            "close" => {
+                futures::executor::block_on(drop_all_handles(&mut store, &handles));
+                return Ok(());
+            }
             _ => Err(anyhow!("unknown command type {kind:?}")),
         };
         let message = match response {
@@ -267,6 +353,52 @@ fn run_protocol(protocol: Arc<Mutex<Protocol>>) -> Result<()> {
         };
         protocol.lock().unwrap().write(&message)?;
     }
+}
+
+fn handle_host_callback(
+    protocol: &Arc<Mutex<Protocol>>,
+    interface: &str,
+    function: &str,
+    ty: &ComponentFunc,
+    params: &[Val],
+    results: &mut [Val],
+    handles: &Arc<Mutex<HandleTable>>,
+) -> Result<()> {
+    let args = params
+        .iter()
+        .map(|value| val_to_json(value, handles))
+        .collect::<Result<Vec<_>>>()?;
+    let request = json!({
+        "type": "host_call",
+        "interface": interface,
+        "function": function,
+        "args": args,
+    });
+    let mut io = protocol.lock().unwrap();
+    io.write(&request)?;
+    let response = io.read()?;
+    if response.get("type").and_then(Value::as_str) != Some("host_result") {
+        bail!("expected host_result response")
+    }
+    if let Some(error) = response.get("error").and_then(Value::as_str) {
+        bail!("host function failed: {error}")
+    }
+    let result_types = ty.results().collect::<Vec<_>>();
+    let values = response
+        .get("values")
+        .and_then(Value::as_array)
+        .ok_or_else(|| anyhow!("host_result.values must be an array"))?;
+    if values.len() != result_types.len() {
+        bail!(
+            "host returned {} results, expected {}",
+            values.len(),
+            result_types.len()
+        )
+    }
+    for ((slot, value), result_ty) in results.iter_mut().zip(values).zip(result_types) {
+        *slot = json_to_val(value, &result_ty, handles)?;
+    }
+    Ok(())
 }
 
 fn component_functions(
@@ -394,18 +526,31 @@ fn canonical_type(ty: &Type) -> String {
         Type::Flags(flags) => format!("flags{{{}}}", flags.names().collect::<Vec<_>>().join(",")),
         Type::Own(_) => "own".into(),
         Type::Borrow(_) => "borrow".into(),
-        Type::Future(_) => "future".into(),
-        Type::Stream(_) => "stream".into(),
+        Type::Future(future) => format!(
+            "future<{}>",
+            future
+                .ty()
+                .map(|ty| canonical_type(&ty))
+                .unwrap_or_default()
+        ),
+        Type::Stream(stream) => format!(
+            "stream<{}>",
+            stream
+                .ty()
+                .map(|ty| canonical_type(&ty))
+                .unwrap_or_default()
+        ),
         Type::ErrorContext => "error-context".into(),
     }
 }
 
-fn handle_call(
+async fn handle_call(
     engine: &Engine,
     instance: &Instance,
     store: &mut Store<State>,
     options: &Options,
     command: &Value,
+    handles: &Arc<Mutex<HandleTable>>,
 ) -> Result<Value> {
     let name = command
         .get("name")
@@ -433,8 +578,18 @@ fn handle_call(
     let params = args
         .iter()
         .zip(&param_types)
-        .map(|(value, ty)| json_to_val(value, ty))
+        .map(|(value, ty)| json_to_val(value, ty, handles))
         .collect::<Result<Vec<_>>>()?;
+    let consumed = args
+        .iter()
+        .zip(&param_types)
+        .filter_map(|(value, ty)| match ty {
+            Type::Own(_) | Type::Future(_) | Type::Stream(_) => {
+                value.get("$witgo_handle").and_then(Value::as_u64)
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
     let result_count = ty.results().len();
     let mut results = vec![Val::Bool(false); result_count];
 
@@ -452,16 +607,17 @@ fn handle_call(
     } else {
         None
     };
-    let called = func.call(store, &params, &mut results);
+    let called = func.call_async(&mut *store, &params, &mut results).await;
     if let Some(cancel) = cancel {
         let _ = cancel.send(());
     }
+    drop_borrowed_handles(store, handles).await;
     called.map_err(|error| anyhow!("call component function {name:?}: {error:#}"))?;
     let values = results
         .iter()
-        .map(val_to_json)
+        .map(|value| val_to_json(value, handles))
         .collect::<Result<Vec<_>>>()?;
-    Ok(json!({"type": "result", "values": values}))
+    Ok(json!({"type": "result", "values": values, "consumed": consumed}))
 }
 
 fn find_func(instance: &Instance, store: &mut Store<State>, name: &str) -> Result<Func> {
@@ -473,7 +629,7 @@ fn find_func(instance: &Instance, store: &mut Store<State>, name: &str) -> Resul
             .get_export_index(&mut *store, Some(&parent), function)
             .ok_or_else(|| anyhow!("component function export {name:?} not found"))?;
         instance
-            .get_func(store, &index)
+            .get_func(store, index)
             .ok_or_else(|| anyhow!("component export {name:?} is not a function"))
     } else {
         instance
@@ -482,7 +638,7 @@ fn find_func(instance: &Instance, store: &mut Store<State>, name: &str) -> Resul
     }
 }
 
-fn json_to_val(value: &Value, ty: &Type) -> Result<Val> {
+fn json_to_val(value: &Value, ty: &Type, handles: &Arc<Mutex<HandleTable>>) -> Result<Val> {
     Ok(match ty {
         Type::Bool => Val::Bool(value.as_bool().ok_or_else(|| anyhow!("expected bool"))?),
         Type::S8 => Val::S8(number_i64(value)?.try_into()?),
@@ -507,7 +663,7 @@ fn json_to_val(value: &Value, ty: &Type) -> Result<Val> {
         Type::List(list) => Val::List(
             array(value)?
                 .iter()
-                .map(|v| json_to_val(v, &list.ty()))
+                .map(|v| json_to_val(v, &list.ty(), handles))
                 .collect::<Result<_>>()?,
         ),
         Type::Map(map) => Val::Map(
@@ -519,8 +675,8 @@ fn json_to_val(value: &Value, ty: &Type) -> Result<Val> {
                         bail!("map entry must contain key and value")
                     }
                     Ok((
-                        json_to_val(&pair[0], &map.key())?,
-                        json_to_val(&pair[1], &map.value())?,
+                        json_to_val(&pair[0], &map.key(), handles)?,
+                        json_to_val(&pair[1], &map.value(), handles)?,
                     ))
                 })
                 .collect::<Result<_>>()?,
@@ -536,7 +692,10 @@ fn json_to_val(value: &Value, ty: &Type) -> Result<Val> {
                         let value = object
                             .get(field.name)
                             .ok_or_else(|| anyhow!("record field {:?} is missing", field.name))?;
-                        Ok((field.name.to_owned(), json_to_val(value, &field.ty)?))
+                        Ok((
+                            field.name.to_owned(),
+                            json_to_val(value, &field.ty, handles)?,
+                        ))
                     })
                     .collect::<Result<_>>()?,
             )
@@ -555,7 +714,7 @@ fn json_to_val(value: &Value, ty: &Type) -> Result<Val> {
                 values
                     .iter()
                     .zip(types)
-                    .map(|(v, t)| json_to_val(v, &t))
+                    .map(|(v, t)| json_to_val(v, &t, handles))
                     .collect::<Result<_>>()?,
             )
         }
@@ -578,6 +737,7 @@ fn json_to_val(value: &Value, ty: &Type) -> Result<Val> {
                         .get("value")
                         .ok_or_else(|| anyhow!("variant.value is required"))?,
                     &ty,
+                    handles,
                 )?)),
                 None => None,
             };
@@ -592,23 +752,33 @@ fn json_to_val(value: &Value, ty: &Type) -> Result<Val> {
             }
             Val::Enum(name.to_owned())
         }
-        Type::Option(option) => Val::Option(if value.is_null() {
-            None
-        } else {
-            Some(Box::new(json_to_val(value, &option.ty())?))
-        }),
+        Type::Option(option) => {
+            let object = value
+                .as_object()
+                .ok_or_else(|| anyhow!("expected option object"))?;
+            if object.len() != 1 {
+                bail!("option must contain exactly one of some or none")
+            }
+            if let Some(some) = object.get("some") {
+                Val::Option(Some(Box::new(json_to_val(some, &option.ty(), handles)?)))
+            } else if object.get("none").and_then(Value::as_bool) == Some(true) {
+                Val::Option(None)
+            } else {
+                bail!("option must contain some or a true none marker")
+            }
+        }
         Type::Result(result) => {
             let object = value
                 .as_object()
                 .ok_or_else(|| anyhow!("expected result object"))?;
             if let Some(ok) = object.get("ok") {
                 Val::Result(Ok(match result.ok() {
-                    Some(ty) => Some(Box::new(json_to_val(ok, &ty)?)),
+                    Some(ty) => Some(Box::new(json_to_val(ok, &ty, handles)?)),
                     None => None,
                 }))
             } else if let Some(err) = object.get("err") {
                 Val::Result(Err(match result.err() {
-                    Some(ty) => Some(Box::new(json_to_val(err, &ty)?)),
+                    Some(ty) => Some(Box::new(json_to_val(err, &ty, handles)?)),
                     None => None,
                 }))
             } else {
@@ -631,13 +801,15 @@ fn json_to_val(value: &Value, ty: &Type) -> Result<Val> {
             }
             Val::Flags(names)
         }
-        Type::Own(_) | Type::Borrow(_) | Type::Future(_) | Type::Stream(_) | Type::ErrorContext => {
-            bail!("this Component Model handle type is not supported by the JSON bridge")
-        }
+        Type::Own(_) => take_handle(value, "resource", handles, true)?,
+        Type::Borrow(_) => take_handle(value, "resource", handles, false)?,
+        Type::Future(_) => take_handle(value, "future", handles, true)?,
+        Type::Stream(_) => take_handle(value, "stream", handles, true)?,
+        Type::ErrorContext => take_handle(value, "error-context", handles, false)?,
     })
 }
 
-fn val_to_json(value: &Val) -> Result<Value> {
+fn val_to_json(value: &Val, handles: &Arc<Mutex<HandleTable>>) -> Result<Value> {
     Ok(match value {
         Val::Bool(v) => json!(v),
         Val::S8(v) => json!(v),
@@ -652,41 +824,159 @@ fn val_to_json(value: &Val) -> Result<Value> {
         Val::Float64(v) => json!(v),
         Val::Char(v) => json!(v.to_string()),
         Val::String(v) => json!(v),
-        Val::List(values) | Val::Tuple(values) => {
-            Value::Array(values.iter().map(val_to_json).collect::<Result<_>>()?)
-        }
+        Val::List(values) | Val::Tuple(values) => Value::Array(
+            values
+                .iter()
+                .map(|value| val_to_json(value, handles))
+                .collect::<Result<_>>()?,
+        ),
         Val::Map(values) => Value::Array(
             values
                 .iter()
-                .map(|(k, v)| Ok(Value::Array(vec![val_to_json(k)?, val_to_json(v)?])))
+                .map(|(k, v)| {
+                    Ok(Value::Array(vec![
+                        val_to_json(k, handles)?,
+                        val_to_json(v, handles)?,
+                    ]))
+                })
                 .collect::<Result<_>>()?,
         ),
         Val::Record(fields) => Value::Object(
             fields
                 .iter()
-                .map(|(name, value)| Ok((name.clone(), val_to_json(value)?)))
+                .map(|(name, value)| Ok((name.clone(), val_to_json(value, handles)?)))
                 .collect::<Result<Map<_, _>>>()?,
         ),
         Val::Variant(case, value) => {
-            json!({"case": case, "value": value.as_deref().map(val_to_json).transpose()?})
+            json!({"case": case, "value": value.as_deref().map(|value| val_to_json(value, handles)).transpose()?})
         }
         Val::Enum(name) => json!(name),
-        Val::Option(value) => value
-            .as_deref()
-            .map(val_to_json)
-            .transpose()?
-            .unwrap_or(Value::Null),
+        Val::Option(value) => match value.as_deref() {
+            Some(value) => json!({"some": val_to_json(value, handles)?}),
+            None => json!({"none": true}),
+        },
         Val::Result(Ok(value)) => {
-            json!({"ok": value.as_deref().map(val_to_json).transpose()?.unwrap_or(Value::Null)})
+            json!({"ok": value.as_deref().map(|value| val_to_json(value, handles)).transpose()?.unwrap_or(Value::Null)})
         }
         Val::Result(Err(value)) => {
-            json!({"err": value.as_deref().map(val_to_json).transpose()?.unwrap_or(Value::Null)})
+            json!({"err": value.as_deref().map(|value| val_to_json(value, handles)).transpose()?.unwrap_or(Value::Null)})
         }
         Val::Flags(values) => json!(values),
-        Val::Resource(_) | Val::Future(_) | Val::Stream(_) | Val::ErrorContext(_) => {
-            bail!("this Component Model handle value is not supported by the JSON bridge")
-        }
+        Val::Resource(resource) => insert_handle(
+            handles,
+            "resource",
+            resource.owned(),
+            StoredHandle::Resource(*resource),
+        ),
+        Val::Future(future) => insert_handle(
+            handles,
+            "future",
+            false,
+            StoredHandle::Future(future.clone()),
+        ),
+        Val::Stream(stream) => insert_handle(
+            handles,
+            "stream",
+            false,
+            StoredHandle::Stream(stream.clone()),
+        ),
+        Val::ErrorContext(_) => insert_handle(
+            handles,
+            "error-context",
+            false,
+            StoredHandle::ErrorContext(value.clone()),
+        ),
     })
+}
+
+fn insert_handle(
+    handles: &Arc<Mutex<HandleTable>>,
+    kind: &str,
+    owned: bool,
+    value: StoredHandle,
+) -> Value {
+    let id = handles.lock().unwrap().insert(value);
+    json!({"$witgo_handle": id, "kind": kind, "owned": owned})
+}
+
+fn take_handle(
+    value: &Value,
+    expected_kind: &str,
+    handles: &Arc<Mutex<HandleTable>>,
+    consume: bool,
+) -> Result<Val> {
+    let object = value
+        .as_object()
+        .ok_or_else(|| anyhow!("expected {expected_kind} handle object"))?;
+    let id = object
+        .get("$witgo_handle")
+        .and_then(Value::as_u64)
+        .ok_or_else(|| anyhow!("{expected_kind} handle id is required"))?;
+    let kind = object
+        .get("kind")
+        .and_then(Value::as_str)
+        .ok_or_else(|| anyhow!("component handle kind is required"))?;
+    if kind != expected_kind {
+        bail!("component handle kind is {kind:?}, expected {expected_kind:?}")
+    }
+    let stored = if consume {
+        handles.lock().unwrap().remove(id)?
+    } else {
+        handles.lock().unwrap().get(id)?
+    };
+    match (expected_kind, stored) {
+        ("resource", StoredHandle::Resource(value)) => Ok(Val::Resource(value)),
+        ("future", StoredHandle::Future(value)) => Ok(Val::Future(value)),
+        ("stream", StoredHandle::Stream(value)) => Ok(Val::Stream(value)),
+        ("error-context", StoredHandle::ErrorContext(value)) => Ok(value),
+        _ => bail!("component handle {id} has a different runtime kind"),
+    }
+}
+
+async fn drop_handle(
+    store: &mut Store<State>,
+    handles: &Arc<Mutex<HandleTable>>,
+    id: u64,
+) -> Result<()> {
+    let value = handles.lock().unwrap().remove(id)?;
+    match value {
+        StoredHandle::Resource(value) => value
+            .resource_drop_async(store)
+            .await
+            .map_err(wasmtime_error),
+        StoredHandle::Future(mut value) => value.close(store).map_err(wasmtime_error),
+        StoredHandle::Stream(mut value) => value.close(store).map_err(wasmtime_error),
+        StoredHandle::ErrorContext(_) => Ok(()),
+    }
+}
+
+async fn drop_all_handles(store: &mut Store<State>, handles: &Arc<Mutex<HandleTable>>) {
+    let ids = handles
+        .lock()
+        .unwrap()
+        .values
+        .keys()
+        .copied()
+        .collect::<Vec<_>>();
+    for id in ids {
+        let _ = drop_handle(store, handles, id).await;
+    }
+}
+
+async fn drop_borrowed_handles(store: &mut Store<State>, handles: &Arc<Mutex<HandleTable>>) {
+    let borrowed = {
+        let mut table = handles.lock().unwrap();
+        let ids = std::mem::take(&mut table.borrowed);
+        ids.into_iter()
+            .filter_map(|id| match table.values.remove(&id) {
+                Some(StoredHandle::Resource(resource)) => Some(resource),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+    };
+    for resource in borrowed {
+        let _ = resource.resource_drop_async(&mut *store).await;
+    }
 }
 
 fn array(value: &Value) -> Result<&Vec<Value>> {

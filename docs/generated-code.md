@@ -87,6 +87,25 @@ if err := contract.CheckPlugin("./plugin.wasm"); err != nil {
 }
 ```
 
+## Composite value representation
+
+- WIT `char`, `option`, `result` and tuples use `witgo.Char`, `Option`,
+  `Result` and `Tuple0...Tuple16` with strict codecs and constructors.
+- WIT enums are named Go string types with `Parse`, `Valid`, `String` and
+  values-list helpers.
+- WIT flags remain named `uint64` bit sets and add `Parse`, `Valid`, `Has`,
+  `Add`, `Remove` and `Names` helpers.
+- WIT variants implement strict `{case,value}` encoding and generate a
+  constructor, predicate and safe accessor for each case.
+- Nested lists retain their ordinary recursive Go slice shape.
+
+Resources, `future<T>`, `stream<T>` and `error-context` are represented by
+`witgo.Handle`. A returned handle remains attached to its originating Runtime,
+can be passed back into that Runtime, and has an idempotent `Close` method.
+Resource ownership is enforced by the bridge. Future/stream payload reading
+and writing are not generated yet; their current API is opaque transport and
+lifecycle management.
+
 Export вызывается удобно и соответствует владельцу из WIT:
 
 ```go
@@ -98,9 +117,7 @@ Adapter проверяет число аргументов, поднимает �
 вызывает реализацию `Host`. Nil import отклоняется сразу.
 
 Records передаются по Canonical ABI движком Wasmtime. Внутренний JSON-канал
-между Go и отдельным bridge процессом является implementation detail и не
-задаёт ABI плагина. В generated-коде больше нет `ReadMemory`, offset/length и
-packed `i64`.
+между Go и bridge является implementation detail и не задаёт ABI плагина.
 
 Ошибки export call возвращаются напрямую. Ошибка преобразования результата
 оборачивается с полным WIT именем функции.

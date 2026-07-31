@@ -19,8 +19,6 @@ Flags:
 - `-out`: output directory;
 - `-package`: optional Go package override;
 - `-filename`: optional generated filename;
-- `-lang`: diagnostic language; defaults to `LANG`;
-- `-auto-translate`: deprecated compatibility flag (no network translation is
-  performed).
+- `-lang`: diagnostic language; defaults to `LANG`.
 
 The CLI, `witgo` library, and generated code support Go 1.18 and newer.
