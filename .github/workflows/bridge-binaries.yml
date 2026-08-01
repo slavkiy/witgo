@@ -83,8 +83,11 @@ jobs:
       - uses: actions/checkout@v6
       - uses: actions/download-artifact@v7
         with:
-          path: internal/bridgebin/bin
+          path: dist/bridge
           merge-multiple: true
+      - name: Stage freshly built libraries
+        if: github.event_name == 'workflow_dispatch' && !startsWith(github.ref, 'refs/tags/')
+        run: cp dist/bridge/*.gz dist/bridge/*.sha256 internal/bridgebin/bin/
       - name: Verify embedded bridge set
         run: |
           test -f internal/bridgebin/bin/linux_amd64.so.gz
@@ -95,9 +98,16 @@ jobs:
           test -f internal/bridgebin/bin/windows_arm64.dll.gz
           find internal/bridgebin/bin -name '*.gz.sha256' -print0 | xargs -0 -n1 sh -c 'cd "$(dirname "$0")" && sha256sum -c "$(basename "$0")"'
           go test ./...
-      - name: Ensure tagged source contains exact native libraries
+      - name: Ensure tagged source remains unchanged
         if: startsWith(github.ref, 'refs/tags/')
         run: git diff --exit-code -- 'internal/bridgebin/bin/*.gz' 'internal/bridgebin/bin/*.sha256'
+      - name: Attest tagged native libraries
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: actions/attest@v4
+        with:
+          subject-path: |
+            internal/bridgebin/bin/*.gz
+            internal/bridgebin/bin/*.sha256
       - name: Commit native libraries to module source
         if: github.event_name == 'workflow_dispatch' && !startsWith(github.ref, 'refs/tags/')
         run: |
@@ -112,11 +122,10 @@ jobs:
           path: |
             internal/bridgebin/bin/*.gz
             internal/bridgebin/bin/*.sha256
-            internal/bridgebin/bin/*.spdx.json
       - name: Attach bundle to GitHub release
         if: startsWith(github.ref, 'refs/tags/')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release view "$GITHUB_REF_NAME" || gh release create "$GITHUB_REF_NAME" --generate-notes
-          gh release upload "$GITHUB_REF_NAME" internal/bridgebin/bin/*.gz internal/bridgebin/bin/*.sha256 internal/bridgebin/bin/*.spdx.json
+          gh release upload "$GITHUB_REF_NAME" internal/bridgebin/bin/*.gz internal/bridgebin/bin/*.sha256
