@@ -11,6 +11,7 @@ go install .
 witgen \
   -wit ./wit \
   -wit-mode package \
+  -go-overlay ./wit/plugin.witgo.yaml \
   -out ./internal/contract \
   -lang ru
 ```
@@ -20,6 +21,7 @@ witgen \
 - `-wit`: WIT-файл или каталог;
 - `-wit-mode`: `file`, `package` (только файлы в корне), `tree`
   (рекурсивно) или совместимый режим `auto`;
+- `-go-overlay`: необязательный versioned YAML overlay для публичных Go-типов;
 - `-out`: каталог для output;
 - `-package`: необязательное переопределение имени Go package;
 - `-filename`: необязательное имя generated файла;

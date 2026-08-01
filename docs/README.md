@@ -13,6 +13,7 @@
 
 - [Проверка контрактов](validation.md)
 - [Сгенерированный Go-код](generated-code.md)
+- [Go type overlays](go-overlays.md)
 - [Прозрачная композиция плагинов](plugin-composition.md)
 - [Автоматические вложенные плагины](nested-plugins.md)
 - [Troubleshooting](troubleshooting.md)

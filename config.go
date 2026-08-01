@@ -8,6 +8,9 @@ type Config struct {
 	WITFiles []string
 	// WITMode defaults to WITInputAuto for backwards compatibility.
 	WITMode WITInputMode
+	// GoOverlay is an optional versioned YAML file that changes the public Go
+	// representation while preserving the canonical WIT wire types.
+	GoOverlay string
 	// Output is the directory where generated bindings are written.
 	Output string
 	// Package is the Go package name. When empty, it is derived from WIT package.

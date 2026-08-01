@@ -30,8 +30,13 @@ witgo.Generate(witgo.Config{
 Что важно:
 
 - generator не переписывает исходный `.wit`;
+- `GoOverlay` подключает versioned YAML mapping публичных Go-типов, не меняя
+  wire contract; формат описан в [go-overlays.md](go-overlays.md);
 - `EnableRuntimeAPI` только добавляет generated facade для vendor capability;
 - generated package всегда знает свой contract manifest и использует его при `Open*`.
+
+`TypeCodec[Wire, Go]` является публичной typed абстракцией для codec tooling.
+Встроенные overlay codecs генерируются прямыми функциями без runtime reflection.
 
 ## RuntimeOptions
 

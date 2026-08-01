@@ -537,3 +537,102 @@ world plugin { export api; }`
 		}
 	}
 }
+
+func TestGenerateGoOverlayUsesPublicAndWireTypes(t *testing.T) {
+	dir, output := t.TempDir(), t.TempDir()
+	wit := `package example:users@1.0.0;
+interface users {
+  type timestamp = s64;
+  record user { id: string, created-at: timestamp }
+  save: func(value: user) -> result<_, string>;
+}
+world plugin { export users; }`
+	overlay := `version: 1
+types:
+  example:users/users@1.0.0#timestamp:
+    go_type: time.Time
+    import: time
+    codec: unix-seconds
+errors:
+  example:users/users@1.0.0#save:
+    result_error: true
+`
+	witPath := filepath.Join(dir, "plugin.wit")
+	overlayPath := filepath.Join(dir, "plugin.witgo.yaml")
+	if err := os.WriteFile(witPath, []byte(wit), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(overlayPath, []byte(overlay), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := Generate(Config{WIT: witPath, GoOverlay: overlayPath, Output: output}); err != nil {
+		t.Fatal(err)
+	}
+	source, err := os.ReadFile(filepath.Join(output, DefaultFilename))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"type Timestamp = time.Time",
+		"type userWire struct",
+		"CreatedAt int64",
+		"func lowerUser(value User) userWire",
+		"wire.CreatedAt = lowerTimestamp(value.CreatedAt)",
+		"func (c *pluginUsersClient) Save(ctx context.Context, value User) error",
+		"return witgo.NewWITError(value)",
+	} {
+		if !strings.Contains(string(source), expected) {
+			t.Errorf("generated overlay source does not contain %q", expected)
+		}
+	}
+	parseGenerated(t, filepath.Join(output, DefaultFilename), source)
+	compileGeneratedOverlay(t, output)
+}
+
+func TestGenerateGoOverlayValidation(t *testing.T) {
+	dir := t.TempDir()
+	witPath := filepath.Join(dir, "plugin.wit")
+	if err := os.WriteFile(witPath, []byte(`package example:users@1.0.0; interface users { type timestamp = s64; test: func(values: list<timestamp>); }`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct{ name, overlay, want string }{
+		{"version", "version: 2\n", "unsupported schema version"},
+		{"unknown codec", "version: 1\ntypes:\n  example:users/users@1.0.0#timestamp:\n    go_type: time.Time\n    import: time\n    codec: magic\n", `unknown codec "magic"`},
+		{"nested list", "version: 1\ntypes:\n  example:users/users@1.0.0#timestamp:\n    go_type: time.Time\n    import: time\n    codec: unix-seconds\n", "mapping inside list is not supported yet"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			overlayPath := filepath.Join(dir, strings.ReplaceAll(test.name, " ", "-")+".yaml")
+			if err := os.WriteFile(overlayPath, []byte(test.overlay), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			err := Generate(Config{WIT: witPath, GoOverlay: overlayPath, Output: t.TempDir()})
+			if err == nil || !strings.Contains(err.Error(), test.want) || !strings.Contains(err.Error(), overlayPath) {
+				t.Fatalf("Generate error = %v, want path and %q", err, test.want)
+			}
+		})
+	}
+}
+
+func compileGeneratedOverlay(t *testing.T, output string) {
+	t.Helper()
+	root, err := filepath.Abs("..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	module := "module overlaytest\n\ngo 1.18\n\nrequire github.com/slavkiy/witgo v0.0.0\nreplace github.com/slavkiy/witgo => " + filepath.ToSlash(root) + "\n"
+	if err := os.WriteFile(filepath.Join(output, "go.mod"), []byte(module), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tidy := exec.Command("go", "mod", "tidy")
+	tidy.Dir = output
+	if result, err := tidy.CombinedOutput(); err != nil {
+		t.Fatalf("resolve overlay package: %v\n%s", err, result)
+	}
+	command := exec.Command("go", "test", "./...")
+	command.Dir = output
+	if result, err := command.CombinedOutput(); err != nil {
+		source, _ := os.ReadFile(filepath.Join(output, DefaultFilename))
+		t.Fatalf("compile overlay package: %v\n%s\n%s", err, result, source)
+	}
+}

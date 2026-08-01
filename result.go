@@ -13,6 +13,17 @@ type Result[T, E any] struct {
 	isErr bool
 }
 
+// WITError preserves a structured WIT result error payload while implementing
+// Go's error interface. Use errors.As to recover Value without losing its type.
+type WITError[E any] struct {
+	Value E
+}
+
+func (e WITError[E]) Error() string { return fmt.Sprintf("WIT error: %v", e.Value) }
+
+// NewWITError wraps a canonical WIT result error payload as a Go error.
+func NewWITError[E any](value E) error { return WITError[E]{Value: value} }
+
 // Ok constructs a successful result.
 func Ok[T, E any](value T) Result[T, E] { return Result[T, E]{ok: value} }
 

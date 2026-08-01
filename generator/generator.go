@@ -20,6 +20,7 @@ type Config struct {
 	WIT              string
 	WITFiles         []string
 	WITMode          InputMode
+	GoOverlay        string
 	Output           string
 	Package          string
 	Filename         string
@@ -80,6 +81,10 @@ func (g *Generator) Generate() error {
 	if err != nil {
 		return err
 	}
+	overlay, err := LoadGoOverlay(g.config.GoOverlay, model)
+	if err != nil {
+		return err
+	}
 
 	packageName := strings.TrimSpace(g.config.Package)
 	if packageName == "" && model.Package != nil {
@@ -89,7 +94,7 @@ func (g *Generator) Generate() error {
 		return fmt.Errorf("go package name is required when WIT package is not declared")
 	}
 
-	source, err := RenderWithOptions(model, packageName, RenderOptions{EnableRuntimeAPI: g.config.EnableRuntimeAPI})
+	source, err := RenderWithOptions(model, packageName, RenderOptions{EnableRuntimeAPI: g.config.EnableRuntimeAPI, GoOverlay: overlay})
 	if err != nil {
 		return fmt.Errorf("render Go bindings: %w", err)
 	}

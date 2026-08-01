@@ -14,6 +14,9 @@ witgo.GenerateTree(config, "./wit")
 обходит дерево рекурсивно, поэтому все найденные файлы должны объявлять один WIT
 package. Порядок переданных файлов не влияет на output.
 
+Необязательные Go-specific mappings описаны отдельно в
+[go-overlays.md](go-overlays.md); WIT-файлы при этом не изменяются.
+
 Для каждого WIT interface создаются единый Go interface, `InterfaceDescriptor`,
 typed provider client, `Register…`, `Resolve…`, `AutoResolve…` и `MustResolve…`.
 Один interface используется для Go implementation, component export и import

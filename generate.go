@@ -77,6 +77,7 @@ func generatorConfig(config Config) generator.Config {
 		WIT:              config.WIT,
 		WITFiles:         append([]string(nil), config.WITFiles...),
 		WITMode:          generator.InputMode(config.WITMode),
+		GoOverlay:        config.GoOverlay,
 		Output:           config.Output,
 		Package:          config.Package,
 		Filename:         config.Filename,

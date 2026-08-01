@@ -17,6 +17,7 @@ type options struct {
 	filename    string
 	language    string
 	witMode     string
+	goOverlay   string
 }
 
 func main() {
@@ -28,11 +29,12 @@ func main() {
 	}
 
 	err = witgo.Generate(witgo.Config{
-		WIT:      opts.wit,
-		WITMode:  mode,
-		Output:   opts.output,
-		Package:  opts.packageName,
-		Filename: opts.filename,
+		WIT:       opts.wit,
+		WITMode:   mode,
+		GoOverlay: opts.goOverlay,
+		Output:    opts.output,
+		Package:   opts.packageName,
+		Filename:  opts.filename,
 	})
 	if err != nil {
 		renderGenerationError(err, normalizeLanguage(opts.language))
@@ -50,6 +52,7 @@ func parseFlags() options {
 	var opts options
 	flag.StringVar(&opts.wit, "wit", "./wit", "WIT file or directory")
 	flag.StringVar(&opts.witMode, "wit-mode", "auto", "WIT input mode: auto, file, package, or tree")
+	flag.StringVar(&opts.goOverlay, "go-overlay", "", "optional Go type overlay YAML file")
 	flag.StringVar(&opts.output, "out", "./internal/contract", "generated package directory")
 	flag.StringVar(&opts.packageName, "package", "", "Go package name; defaults to WIT package name")
 	flag.StringVar(&opts.filename, "filename", "", "generated filename; defaults to bindings.gen.go")
