@@ -1,6 +1,16 @@
-include!("main.rs");
+mod codec;
+mod composition;
+mod contract;
+mod handles;
+mod protocol;
+mod runtime;
 
+use protocol::{Protocol, ProtocolIo};
+use runtime::run_protocol;
+use serde_json::{Value, json};
 use std::slice;
+use std::sync::mpsc::{Receiver, Sender};
+use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 
 pub struct BridgeHandle {
@@ -33,12 +43,6 @@ pub extern "C" fn witgo_bridge_new() -> *mut BridgeHandle {
 }
 
 #[unsafe(no_mangle)]
-/// Sends one JSON protocol message to the bridge worker.
-///
-/// # Safety
-///
-/// `handle` must be a live pointer returned by [`witgo_bridge_new`], and
-/// `data` must point to `len` readable bytes for the duration of this call.
 pub unsafe extern "C" fn witgo_bridge_send(
     handle: *mut BridgeHandle,
     data: *const u8,
@@ -59,13 +63,6 @@ pub unsafe extern "C" fn witgo_bridge_send(
 }
 
 #[unsafe(no_mangle)]
-/// Receives one JSON protocol message allocated by the bridge.
-///
-/// # Safety
-///
-/// `handle` must be a live pointer returned by [`witgo_bridge_new`], and `len`
-/// must point to writable storage. The returned buffer must be released exactly
-/// once with [`witgo_bridge_free`] using the reported length.
 pub unsafe extern "C" fn witgo_bridge_receive(
     handle: *mut BridgeHandle,
     len: *mut usize,
@@ -88,12 +85,6 @@ pub unsafe extern "C" fn witgo_bridge_receive(
 }
 
 #[unsafe(no_mangle)]
-/// Releases a message buffer returned by [`witgo_bridge_receive`].
-///
-/// # Safety
-///
-/// `data` and `len` must be the unchanged pair returned by
-/// [`witgo_bridge_receive`], and the buffer must not have been freed already.
 pub unsafe extern "C" fn witgo_bridge_free(data: *mut u8, len: usize) {
     if !data.is_null() {
         let slice = std::ptr::slice_from_raw_parts_mut(data, len);
@@ -102,12 +93,6 @@ pub unsafe extern "C" fn witgo_bridge_free(data: *mut u8, len: usize) {
 }
 
 #[unsafe(no_mangle)]
-/// Stops the bridge worker and releases its handle.
-///
-/// # Safety
-///
-/// `handle` must be a live pointer returned by [`witgo_bridge_new`] and may be
-/// passed to this function only once.
 pub unsafe extern "C" fn witgo_bridge_close(handle: *mut BridgeHandle) {
     if handle.is_null() {
         return;
@@ -117,4 +102,8 @@ pub unsafe extern "C" fn witgo_bridge_close(handle: *mut BridgeHandle) {
     if let Some(worker) = handle.worker.take() {
         let _ = worker.join();
     }
+}
+
+fn wasmtime_error(error: wasmtime::Error) -> anyhow::Error {
+    anyhow::anyhow!(error.to_string())
 }

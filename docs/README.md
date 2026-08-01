@@ -1,33 +1,26 @@
 # Документация
 
-Этот каталог собирает подробную документацию по `witgo`.
+Ниже только документы, которые реально нужны для работы с `witgo`.
 
-## С чего начать
+## База
 
-- [Tutorial: Rust Component + Go host](tutorial-rust-component.md)
+- [README](../README.md) - быстрый старт и модель использования.
+- [Архитектура runtime](architecture.md) - доверенные границы, composition и bridge.
+- [Публичный API](public-api.md) - что считается основным API хоста и генератора.
+- [Возможности и ограничения](capabilities.md) - текущие гарантии и сознательные ограничения.
+
+## Для ежедневной работы
+
 - [Проверка контрактов](validation.md)
 - [Сгенерированный Go-код](generated-code.md)
-- [Публичный API](public-api.md)
-- [Совместимость с TinyGo и контекстный API](tinygo.md)
-- [Автоматические вложенные плагины](nested-plugins.md)
 - [Прозрачная композиция плагинов](plugin-composition.md)
-
-## Эксплуатация
-
+- [Автоматические вложенные плагины](nested-plugins.md)
 - [Troubleshooting](troubleshooting.md)
-- [Возможности и ограничения](capabilities.md)
-- [Архитектура runtime](architecture.md)
-- [Релизный процесс](releasing.md)
+
+## Для специальных сценариев
+
+- [Tutorial: Rust Component + Go host](tutorial-rust-component.md)
+- [Совместимость с TinyGo и контекстный API](tinygo.md)
 - [Migration guide](migration-guide.md)
-
-## Безопасность
-
+- [Релизный процесс](releasing.md)
 - [Security model](../SECURITY.md)
-
-## Как читать этот каталог
-
-- Если вы только начинаете, идите в tutorial и потом в validation.
-- Если у вас уже есть plugin, но он не стартует, идите в troubleshooting.
-- Если вы обновляете версию `witgo`, сначала откройте migration guide.
-- Если вы готовите production rollout, прочитайте architecture, capabilities и
-  SECURITY.

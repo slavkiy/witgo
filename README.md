@@ -1,14 +1,9 @@
 <p align="center"><img src="assets/art.png" alt="art" width="300"></p>
 
-# witgo
-
-Любой сгенерированный WIT-интерфейс может быть реализован Go-кодом или другим
-зарегистрированным WebAssembly Component. Плагин-потребитель использует тот же
-import и не знает, какой provider находится за ним.
-
 `witgo` генерирует типизированный Go API из WIT-контракта и позволяет Go-host
 загружать WebAssembly Component-плагины, вызывать их exports и предоставлять им
-host-функции.
+host-функции. Один и тот же WIT import может обслуживаться Go-кодом или другим
+зарегистрированным WebAssembly Component без изменения consumer-кода.
 
 > Статус: beta. Библиотека уже покрывает основной сценарий Component Model,
 > строгую проверку контракта до запуска, version handshake с Rust bridge и
@@ -189,34 +184,23 @@ if err := contract.CheckPlugin("./plugins/plugin.component.wasm"); err != nil {
 Ошибка от `CheckPlugin` поддерживает `errors.Is(err, witgo.ErrContractMismatch)`
 и `errors.As` к `*witgo.ContractValidationError`.
 
-## Что есть сейчас
+## Что важно знать
 
-- строгий version handshake между Go-библиотекой и Rust bridge;
-- проверка контракта до instantiation: imports, exports, structural signatures;
-- generated `Ping`-manifest для каждого `world`;
-- типизированные bindings для records, enums, flags, variants, options, results,
-  tuples, maps и вложенных списков;
-- `witgo.Handle` для `resource`, `future`, `stream` и `error-context`;
-- end-to-end тесты для maps, variants, resources и сложных списков;
-- CI-матрица для Linux, macOS и Windows на `amd64` и `arm64`;
-- встроенный native bridge без отдельного sidecar-процесса; обычный Go работает без CGO, TinyGo использует CGo-loader.
-- автоматическое связывание вложенных плагинов по WIT imports/exports без ручных adapters;
+- runtime работает in-process через доверенный Rust bridge, а не через sidecar;
+- перед запуском всегда проверяются contract manifest и version handshake;
+- вложенные плагины связываются через WIT imports/exports, но не получают
+  прямой доступ к registry, runtime options или чужим runtime;
+- системный vendor API `witgo:runtime/runtime@1.0.0` подключается только явно
+  через `EnableRuntimeAPI` и даёт guest-коду только локальное состояние вызова;
+- запрос дополнительного fuel возможен только через
+  `UnsafeRequestAdditionalFuel`, а решение всегда остаётся за host policy;
+- `resource`, `future`, `stream` и `error-context` передаются как
+  runtime-bound `witgo.Handle` и не могут безопасно мигрировать между
+  независимыми runtime-box;
+- обычный Go использует `purego` без CGO, TinyGo использует системный CGo-loader.
 
-## Ограничения на сегодня
-
-- `resource`, `future`, `stream` и `error-context` поддерживаются как живые
-  runtime-bound handle, включая автоматическую same-Store передачу между
-  вложенными WebAssembly-плагинами, но не как полностью типизированный
-  high-level API;
-- для `future<T>` и `stream<T>` ещё нет generated Go API для чтения/записи typed
-  payload;
-- tuple с arity больше 16 переходят в динамический `witgo.Tuple`;
-- `map<K,V>` поддерживается, но ключ обязан быть `comparable` в Go;
-- observability hooks, instance pool и hot reload пока не входят в публичную
-  библиотеку.
-
-Полная матрица возможностей и ограничений собрана в
-[docs/capabilities.md](docs/capabilities.md).
+Ключевые ограничения и поведение собраны в [docs/capabilities.md](docs/capabilities.md),
+архитектура и модель доверия - в [docs/architecture.md](docs/architecture.md).
 
 ## Поддерживаемые значения
 

@@ -1,109 +1,116 @@
 # Архитектура runtime
 
-## Composition router
+`witgo` строится вокруг простой границы доверия:
 
-`Host` хранит registry интерфейсных providers, но берёт read lock только для
-получения стабильного `ProviderHandle`. Для Go provider generated adapter
-поднимает WIT values и вызывает callback без удержания registry lock.
+- Go host и `witgo` core считаются доверенными;
+- Rust bridge считается доверенным системным слоем;
+- WebAssembly Component plugin считается недоверенным кодом;
+- policy и capability-решения всегда принимаются на стороне host.
 
-Для WebAssembly provider `ProviderHandle` хранит рецепт `ComponentComposition`.
-Generated consumer передаёт точные рёбра в bridge, `wac-graph` связывает imports
-и exports, а Wasmtime создаёт весь граф одним Component и одним Store. Один и
-тот же provider с одинаковым графом переиспользует одну instance, даже если он
-обслуживает несколько интерфейсов. Поэтому resource identity и ownership не
-подменяются числовыми токенами между Runtime.
+## Как устроен вызов
 
-Ключ ребра - полный WIT ID. Дубликаты одного ID, несовместимые типы и циклы
-отклоняются до instantiation. Разные короткие имена не участвуют в разрешении.
-Каждая top-level загрузка создаёт независимую коробку и собственные instances.
-Подробности и примеры приведены в [документе о композиции](plugin-composition.md).
+1. Generated bindings проверяют контракт плагина до запуска.
+2. Go runtime открывает доверенный native bridge.
+3. Rust bridge поднимает Wasmtime и инстанцирует component graph.
+4. Вызов export идёт через typed Go API.
+5. Если plugin вызывает import, host маршрутизирует его либо в Go provider,
+   либо в другой зарегистрированный plugin.
 
-`witgo` запускает WebAssembly Components in-process через встроенную Wasmtime
-shared library. Нет отдельного процесса, нет stdin/stdout IPC, нет сетевой
-загрузки runtime и нет обязательной внешней установки.
+Для consumer-плагина другой plugin выглядит как обычный WIT import. Он не видит
+registry, runtime options, bridge internals или чужие файлы.
 
-Go package встраивает по одной gzip-сжатой библиотеке на каждую поддерживаемую
-платформу:
+## Composition model
 
-- Windows `amd64`/`arm64`: `witgo_bridge.dll`;
-- Linux `amd64`/`arm64`: `libwitgo_bridge.so`;
-- macOS `amd64`/`arm64`: `libwitgo_bridge.dylib`.
+Прозрачная композиция держится на `Host`, который хранит registry providers и
+маршрутизирует вызовы по полному WIT ID. Короткие имена не участвуют в
+разрешении.
 
-При первом использовании библиотека распаковывается в пользовательский cache.
-ОС не умеют загружать DLL/shared object прямо из Go byte slice, поэтому cache
-файл здесь неизбежен. Имя файла включает content hash, установка выполняется
-атомарно, а встроенный SHA-256 проверяется и перед записью, и на каждом cache
-hit.
+Каждая top-level загрузка создаёт независимую runtime-box:
 
-`BridgePath` или `WITGO_COMPONENT_LIBRARY` позволяют выбрать внешнюю
-администраторскую библиотеку, `BridgeSHA256` закрепляет её по хэшу.
-`DisableEmbeddedBridge` запрещает использовать встроенную копию.
+- свой набор instances;
+- свой Store;
+- свои handle;
+- свой call chain и лимиты.
 
-## Внутрипроцессный протокол
+`resource`, `future`, `stream` и `error-context` можно безопасно передавать
+только внутри одной такой коробки. Между независимыми runtime они не
+переносятся.
 
-Go вызывает небольшой стабильный C ABI через `purego` без CGO. При сборке
-TinyGo тот же ABI вызывается через CGo и системный dynamic loader. Внутри Rust
-остаётся JSON value protocol поверх in-memory каналов.
+## Runtime system API
 
-Инициализация выполняет строгий handshake, который включает:
+Системный vendor interface называется `witgo:runtime/runtime@1.0.0`.
 
-- `protocol_version`;
-- `witgo_version`;
-- `bridge_version`;
-- `wasmtime_version`;
-- список обязательных `features`.
+Он не меняет пользовательский `.wit` автоматически и подключается только через
+явный opt-in:
 
-До instantiation bridge отвечает на contract `ping` отсортированными именами
-component imports/exports. Generated Go bindings сравнивают этот manifest с WIT
-контрактом и набором зарегистрированных host adapters ещё до отправки `start`.
+```go
+witgo.Config{EnableRuntimeAPI: true}
+```
 
-Go передаёт в `init` требуемую bridge-версию и обязательные feature-флаги. Rust
-отклоняет любое несовпадение, а Go независимо перепроверяет значения,
-возвращённые в `pong`. Режима совместимости или fallback нет.
+Когда API включён, guest получает только call-local возможности:
 
-Вызовы внутри одного `Runtime` сериализуются. Разные `Runtime` можно выполнять
-параллельно. `Close` освобождает состояние Wasmtime, дожидается worker thread,
-по возможности выгружает библиотеку и остаётся идемпотентным. Timeout для Wasm
-основан на Wasmtime epoch interruption. Если зависание произошло внутри
-доверенного native-кода, безопасно остановить его без завершения процесса
-нельзя, это осознанный trade-off in-process модели.
+- `CallInfo`
+- `FuelInfo`
+- `Limits`
+- `IsCancelled`
+- `UnsafeRequestAdditionalFuel`
 
-## Поддерживаемые значения
+Первые четыре операции read-only. `UnsafeRequestAdditionalFuel` специально
+назван опасно, потому что plugin не управляет fuel сам, а только просит host
+рассмотреть запрос.
 
-Codec покрывает:
+Plugin не получает доступ к:
 
-- `bool`;
-- все WIT integer и float типы;
-- `char`;
-- `string`;
-- `list`;
-- `map`;
-- `record`;
-- `tuple`;
-- `variant`;
-- `enum`;
-- `option`;
-- `result`;
-- `flags`.
+- `Runtime.SetFuel`
+- `Runtime.Close`
+- registry
+- `RuntimeOptions`
+- `BridgePath`
+- raw `Runtime.Call`
+- native handle bridge
+- host-only административным API
 
-`resource`, `future`, `stream` и `error-context` представлены непрозрачными
-runtime-bound handle-токенами. Bridge удерживает соответствующее Wasmtime
-значение, проверяет его kind и Store, переносит `own`, сохраняет `borrow` на
-время вызова и явно дропает удержанные handle.
+## Fuel и policy
 
-Resource-типы входят и в pre-instantiation contract manifest. Dynamic API умеет
-передавать `future`/`stream` handles между вызовами и закрывать их, но пока не
-умеет читать или писать произвольный типизированный payload. Для этого нужна
-generated Rust specialization, потому что type-erased `FutureAny` и `StreamAny`
-из Wasmtime открывают reader/writer только для статически известных типов.
+Fuel budget остаётся host-controlled ресурсом.
 
-## Граница безопасности
+- `Fuel` задаёт budget Store.
+- `FuelPerCall` сбрасывает budget на каждый export call.
+- guest не может сам увеличить budget.
+- дополнительные grants проходят через `FuelRequestPolicy`.
+- default policy - `DenyFuelRequests`.
 
-Shared library остаётся доверенным native-кодом. Релизный процесс собирает все
-шесть библиотек из `Cargo.lock`, тестирует каждую через Go, публикует raw и
-compressed SHA-256 checksums, SPDX SBOM и GitHub build attestations, а затем
-фиксирует точные compressed libraries в исходниках модуля перед созданием тега.
+Даже при включённом системном API host может:
 
-Для production-дистрибуции по-прежнему важны Windows Authenticode и Apple
-signing/notarization, чтобы уменьшать ложные срабатывания антивирусов и
-поддерживать привычную цепочку доверия.
+- полностью отклонить запрос;
+- выдать меньше запрошенного;
+- выдать `0` через отказ;
+- остановить запрос по timeout, deadline или лимитам.
+
+## Почему bridge остаётся нативным
+
+Rust-модуль здесь не обычный plugin. Это доверенный bridge-слой, который:
+
+- управляет Wasmtime;
+- собирает component composition graph;
+- держит Store и linker;
+- контролирует fuel, timeout и limits;
+- реализует handshake и protocol features.
+
+Поэтому переводить bridge целиком в guest wasm-plugin нельзя без разрушения
+границы доверия. В wasm можно выносить только непривилегированную прикладную
+логику, но не сам системный runtime bridge.
+
+## Delivery model
+
+`witgo` работает in-process и не требует sidecar-процесса.
+
+- обычный Go использует `purego` loader без CGO;
+- TinyGo использует CGo-based dynamic loader;
+- встроенные bridge-библиотеки поставляются для Linux, macOS и Windows на
+  `amd64` и `arm64`;
+- при запуске используется строгий version handshake без fallback-режима.
+
+Если нужен внешний bridge, host может закрепить его через `BridgePath` и
+`BridgeSHA256` или полностью запретить встроенный artifact через
+`DisableEmbeddedBridge`.

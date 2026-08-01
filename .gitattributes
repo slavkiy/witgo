@@ -1,0 +1,3 @@
+*.wasm linguist-language=WebAssembly
+*.wat  linguist-language=WebAssembly
+*.wit  linguist-language=WebAssembly
