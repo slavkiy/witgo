@@ -2,6 +2,23 @@
 
 Здесь только практические границы текущего `witgo`.
 
+## Платформы
+
+Парсер и генератор являются переносимым Go-кодом. Для выполнения component нужен
+Rust/Wasmtime bridge, собранный под конкретные OS и архитектуру.
+
+- встроенный bridge: Linux, macOS и Windows на `amd64` и `arm64`;
+- внешний `RuntimeOptions.BridgePath`: Linux, macOS, Windows и FreeBSD (FreeBSD
+  требует CGo), если Rust и Wasmtime поддерживают выбранный target;
+- TinyGo runtime поддерживает Linux и Windows с CGo. На macOS TinyGo 0.41 не
+  позволяет связать `dlopen`; parser и generator при этом доступны. Без CGo
+  динамический bridge не загружается.
+
+На остальных Go/TinyGo targets доступны parsing и generation, но runtime требует
+добавить загрузчик динамической библиотеки и Rust/Wasmtime build для этого target.
+Android и iOS намеренно относятся к generation-only targets: их модель
+распространения не допускает обычную загрузку внешнего desktop bridge.
+
 ## Что уже надёжно поддерживается
 
 - генерация typed Go bindings из одного WIT package;

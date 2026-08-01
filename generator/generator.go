@@ -18,19 +18,37 @@ const DefaultFilename = "bindings.gen.go"
 
 type Config struct {
 	WIT              string
+	WITFiles         []string
+	WITMode          InputMode
 	Output           string
 	Package          string
 	Filename         string
 	EnableRuntimeAPI bool
 }
 
+// InputMode controls expansion of a WIT source path.
+type InputMode uint8
+
+const (
+	InputAuto InputMode = iota
+	InputFile
+	InputPackage
+	InputTree
+)
+
 type Generator struct {
 	config Config
 }
 
 func New(config Config) (*Generator, error) {
-	if strings.TrimSpace(config.WIT) == "" {
+	if strings.TrimSpace(config.WIT) == "" && len(config.WITFiles) == 0 {
 		return nil, fmt.Errorf("wit path is required")
+	}
+	if strings.TrimSpace(config.WIT) != "" && len(config.WITFiles) != 0 {
+		return nil, fmt.Errorf("WIT and WITFiles cannot be used together")
+	}
+	if config.WITMode > InputTree {
+		return nil, fmt.Errorf("invalid WIT input mode %d", config.WITMode)
 	}
 	if strings.TrimSpace(config.Output) == "" {
 		config.Output = "."
@@ -53,7 +71,7 @@ func Generate(config Config) error {
 }
 
 func (g *Generator) Generate() error {
-	files, err := loadWIT(g.config.WIT)
+	files, err := loadWIT(g.config.WIT, g.config.WITFiles, g.config.WITMode)
 	if err != nil {
 		return err
 	}
@@ -91,7 +109,11 @@ type sourceFile struct {
 	content []byte
 }
 
-func loadWIT(root string) ([]sourceFile, error) {
+func loadWIT(root string, explicit []string, mode InputMode) ([]sourceFile, error) {
+	if len(explicit) != 0 {
+		paths := append([]string(nil), explicit...)
+		return readWITFiles(paths)
+	}
 	info, err := os.Stat(root)
 	if err != nil {
 		return nil, fmt.Errorf("stat WIT path: %w", err)
@@ -99,13 +121,21 @@ func loadWIT(root string) ([]sourceFile, error) {
 
 	var paths []string
 	if !info.IsDir() {
-		if strings.EqualFold(filepath.Ext(root), ".wit") {
-			paths = append(paths, root)
+		if mode == InputPackage || mode == InputTree {
+			return nil, fmt.Errorf("WIT path %q must be a directory", root)
 		}
+		paths = append(paths, root)
 	} else {
+		if mode == InputFile {
+			return nil, fmt.Errorf("WIT path %q must be a file", root)
+		}
+		walkRoot := mode == InputAuto || mode == InputTree
 		err = filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
 			if walkErr != nil {
 				return walkErr
+			}
+			if entry.IsDir() && path != root && !walkRoot {
+				return filepath.SkipDir
 			}
 			if !entry.IsDir() && strings.EqualFold(filepath.Ext(entry.Name()), ".wit") {
 				paths = append(paths, path)
@@ -119,10 +149,24 @@ func loadWIT(root string) ([]sourceFile, error) {
 	if len(paths) == 0 {
 		return nil, fmt.Errorf("no .wit files found in %q", root)
 	}
-	sort.Strings(paths)
+	return readWITFiles(paths)
+}
 
+func readWITFiles(paths []string) ([]sourceFile, error) {
+	if len(paths) == 0 {
+		return nil, fmt.Errorf("no .wit files provided")
+	}
+	paths = append([]string(nil), paths...)
+	sort.Strings(paths)
 	files := make([]sourceFile, 0, len(paths))
 	for _, path := range paths {
+		info, err := os.Stat(path)
+		if err != nil {
+			return nil, fmt.Errorf("stat WIT file %q: %w", path, err)
+		}
+		if info.IsDir() || !strings.EqualFold(filepath.Ext(path), ".wit") {
+			return nil, fmt.Errorf("WIT source %q must be a .wit file", path)
+		}
 		content, err := os.ReadFile(path)
 		if err != nil {
 			return nil, fmt.Errorf("read %q: %w", path, err)

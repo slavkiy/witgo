@@ -129,6 +129,48 @@ func TestGenerateRejectsDifferentPackages(t *testing.T) {
 	}
 }
 
+func TestGeneratePackageIgnoresNestedDependencies(t *testing.T) {
+	witDir := t.TempDir()
+	outputDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(witDir, "types.wit"), []byte("package app:plugin; record item { value: string }"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(witDir, "deps", "vendor"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(witDir, "deps", "vendor", "types.wit"), []byte("package vendor:types;"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := Generate(Config{WIT: witDir, WITMode: InputPackage, Output: outputDir}); err != nil {
+		t.Fatalf("Generate package returned error: %v", err)
+	}
+}
+
+func TestGenerateExplicitFiles(t *testing.T) {
+	witDir := t.TempDir()
+	outputDir := t.TempDir()
+	first := filepath.Join(witDir, "types.wit")
+	second := filepath.Join(witDir, "world.wit")
+	if err := os.WriteFile(first, []byte("package app:plugin; record item { value: string }"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(second, []byte("package app:plugin; world plugin {}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := Generate(Config{WITFiles: []string{second, first}, Output: outputDir}); err != nil {
+		t.Fatalf("Generate explicit files returned error: %v", err)
+	}
+	source, err := os.ReadFile(filepath.Join(outputDir, DefaultFilename))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(source), "type Item struct") || !strings.Contains(string(source), "type Plugin struct") {
+		t.Fatal("generated bindings do not contain declarations from both files")
+	}
+}
+
 func TestGenerateRejectsGoNameCollision(t *testing.T) {
 	dir := t.TempDir()
 	contract := `package test:collision;

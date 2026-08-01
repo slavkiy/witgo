@@ -10,6 +10,7 @@ go install .
 
 witgen \
   -wit ./wit \
+  -wit-mode package \
   -out ./internal/contract \
   -lang ru
 ```
@@ -17,6 +18,8 @@ witgen \
 Флаги:
 
 - `-wit`: WIT-файл или каталог;
+- `-wit-mode`: `file`, `package` (только файлы в корне), `tree`
+  (рекурсивно) или совместимый режим `auto`;
 - `-out`: каталог для output;
 - `-package`: необязательное переопределение имени Go package;
 - `-filename`: необязательное имя generated файла;

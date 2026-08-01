@@ -1,4 +1,4 @@
-//go:build tinygo && !cgo && (windows || linux || darwin)
+//go:build tinygo && !cgo && (windows || (linux && !android) || (darwin && !ios) || freebsd)
 
 package witgo
 

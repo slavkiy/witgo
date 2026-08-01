@@ -133,6 +133,8 @@ func AssetName() (string, error) {
 		return runtime.GOOS + "_" + runtime.GOARCH + ".dylib.gz", nil
 	case "windows/amd64", "windows/arm64":
 		return runtime.GOOS + "_" + runtime.GOARCH + ".dll.gz", nil
+	case "freebsd/amd64", "freebsd/arm64":
+		return runtime.GOOS + "_" + runtime.GOARCH + ".so.gz", nil
 	default:
 		return "", fmt.Errorf("%w: %s/%s", ErrUnavailable, runtime.GOOS, runtime.GOARCH)
 	}

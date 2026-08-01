@@ -1,29 +1,9 @@
-//go:build tinygo && cgo && (linux || darwin)
+//go:build cgo && (freebsd || (tinygo && linux && !android))
 
 package witgo
 
 /*
-#cgo linux LDFLAGS: -ldl
-#include <dlfcn.h>
-#include <stdint.h>
-#include <stdlib.h>
-
-typedef void* (*witgo_new_fn)(void);
-typedef int32_t (*witgo_send_fn)(void*, const uint8_t*, uintptr_t);
-typedef uint8_t* (*witgo_receive_fn)(void*, uintptr_t*);
-typedef void (*witgo_free_fn)(uint8_t*, uintptr_t);
-typedef void (*witgo_close_fn)(void*);
-
-static void* witgo_library_open(const char* path) { return dlopen(path, RTLD_NOW | RTLD_LOCAL); }
-static void* witgo_library_symbol(void* library, const char* name) { return dlsym(library, name); }
-static int witgo_library_close(void* library) { return dlclose(library); }
-static const char* witgo_library_error(void) { const char* value = dlerror(); return value == NULL ? "unknown dynamic loader error" : value; }
-
-static void* witgo_call_new(void* function) { return ((witgo_new_fn)function)(); }
-static int32_t witgo_call_send(void* function, void* handle, const uint8_t* data, uintptr_t length) { return ((witgo_send_fn)function)(handle, data, length); }
-static uint8_t* witgo_call_receive(void* function, void* handle, uintptr_t* length) { return ((witgo_receive_fn)function)(handle, length); }
-static void witgo_call_free(void* function, uint8_t* data, uintptr_t length) { ((witgo_free_fn)function)(data, length); }
-static void witgo_call_close(void* function, void* handle) { ((witgo_close_fn)function)(handle); }
+#include "native_bridge_tinygo_unix.h"
 */
 import "C"
 

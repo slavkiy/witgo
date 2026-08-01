@@ -1,4 +1,4 @@
-//go:build tinygo && cgo
+//go:build tinygo && cgo && (linux || windows || freebsd)
 
 package witgo
 

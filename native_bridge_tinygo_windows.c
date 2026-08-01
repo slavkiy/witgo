@@ -1,3 +1,5 @@
+#ifdef _WIN32
+
 #include "native_bridge_tinygo_windows.h"
 
 #include <stdlib.h>
@@ -57,3 +59,5 @@ void witgo_call_free(void* function, uint8_t* data, uintptr_t length) {
 void witgo_call_close(void* function, void* handle) {
 	((witgo_close_fn)function)(handle);
 }
+
+#endif

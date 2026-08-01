@@ -1,5 +1,19 @@
 # Сгенерированный Go-код
 
+Источник WIT выбирается явно:
+
+```go
+witgo.GenerateFile(config, "plugin.wit")
+witgo.GenerateFiles(config, "types.wit", "plugin.wit")
+witgo.GeneratePackage(config, "./wit")
+witgo.GenerateTree(config, "./wit")
+```
+
+`GeneratePackage` читает все `.wit` непосредственно в каталоге. Вложенные
+каталоги, включая `deps/`, считаются границами других packages. `GenerateTree`
+обходит дерево рекурсивно, поэтому все найденные файлы должны объявлять один WIT
+package. Порядок переданных файлов не влияет на output.
+
 Для каждого WIT interface создаются единый Go interface, `InterfaceDescriptor`,
 typed provider client, `Register…`, `Resolve…`, `AutoResolve…` и `MustResolve…`.
 Один interface используется для Go implementation, component export и import

@@ -1,4 +1,4 @@
-//go:build !(windows || linux || darwin || freebsd)
+//go:build android || ios
 
 package witgo
 
@@ -7,5 +7,5 @@ import "fmt"
 const nativeBridgeBackend = NativeBridgeBackendUnsupported
 
 func loadNativeLibrary(path string) (*nativeLibrary, error) {
-	return nil, fmt.Errorf("native component library %q is unsupported on this platform", path)
+	return nil, fmt.Errorf("load native component library %q: dynamic component bridges are unsupported on mobile targets", path)
 }
