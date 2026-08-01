@@ -1,3 +1,5 @@
+//go:build tinygo && cgo && windows
+
 #ifdef _WIN32
 
 #include "native_bridge_tinygo_windows.h"

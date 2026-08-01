@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -607,7 +608,7 @@ func TestGenerateGoOverlayValidation(t *testing.T) {
 				t.Fatal(err)
 			}
 			err := Generate(Config{WIT: witPath, GoOverlay: overlayPath, Output: t.TempDir()})
-			if err == nil || !strings.Contains(err.Error(), test.want) || !strings.Contains(err.Error(), overlayPath) {
+			if err == nil || !strings.Contains(err.Error(), test.want) || !strings.Contains(err.Error(), strconv.Quote(overlayPath)) {
 				t.Fatalf("Generate error = %v, want path and %q", err, test.want)
 			}
 		})
