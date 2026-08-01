@@ -1,4 +1,4 @@
-//go:build (tinygo && linux && !android) || freebsd
+//go:build cgo && (freebsd || (tinygo && linux && !android))
 
 #if !defined(_WIN32) && !defined(__APPLE__)
 
