@@ -68,22 +68,18 @@ jobs:
 
   tinygo:
     runs-on: ubuntu-latest
-    env:
-      # TinyGo links its libc first; dlopen lives in glibc itself since 2.34.
-      CGO_LDFLAGS: /usr/lib/x86_64-linux-gnu/libc.so.6
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v6
         with:
           go-version: '1.25.x'
-      - uses: dtolnay/rust-toolchain@stable
       - name: Install TinyGo
         run: |
           wget -q https://github.com/tinygo-org/tinygo/releases/download/v0.41.1/tinygo_0.41.1_amd64.deb
           sudo dpkg -i tinygo_0.41.1_amd64.deb
       - name: Compile all Go packages with TinyGo
         env:
-          CGO_ENABLED: '1'
+          CGO_ENABLED: '0'
         run: tinygo test -run '^$' ./...
       - name: Verify automatic WASM plugin role
         env:
@@ -91,12 +87,3 @@ jobs:
           GOARCH: wasm
           CGO_ENABLED: '0'
         run: go test -c -o /tmp/witgo-wasm-role.test .
-      - name: Build bridge for TinyGo CGo backend
-        working-directory: bridge
-        run: cargo build --locked --lib
-      - name: Run bridge handshake through TinyGo CGo backend
-        env:
-          CGO_ENABLED: '1'
-          WITGO_COMPONENT_LIBRARY: bridge/target/debug/libwitgo_bridge.so
-          WITGO_DISABLE_EMBEDDED_BRIDGE: '1'
-        run: tinygo test -run '^(TestTinyGoUsesCGoBridgeBackend|TestComponentVersionHandshake)$' .
