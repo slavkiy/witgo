@@ -2,6 +2,19 @@
 
 ## Следующий релиз
 
+- Добавлены Go-specific type overlays в отдельном versioned YAML-файле без
+  изменения стандартного WIT и Component ABI.
+- Добавлены `GenerateFile`, `GenerateFiles`, `GeneratePackage`, `GenerateTree`,
+  режимы WIT input и `witgen -wit-mode`.
+- Добавлены mappings `s64` для `time.Time`/`time.Duration`, private wire types,
+  generated lower/lift adapters и `result_error` с `WITError[E]`.
+- Добавлен публичный `TypeCodec[Wire, Go]`; generated codecs не используют
+  reflection или runtime registry в call hot path.
+- Native loader расширен для внешнего FreeBSD bridge с CGo; generation-only
+  targets получают явную runtime-диагностику.
+- Восстановлена совместимость с Go 1.18, исправлены TinyGo CI-команды, Rust
+  formatting и strict Clippy checks.
+
 - Добавлена Transparent Plugin Composition: WIT import может обслуживаться
   одинаковым типизированным интерфейсом из Go или export другого компонента.
 - Добавлены `Host`, provider registry, descriptors, AutoBind, безопасный

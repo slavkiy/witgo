@@ -5,7 +5,8 @@
 
 ## Что считается основным API
 
-- `Generate` и `Config` для генерации typed bindings;
+- `Generate`, `GenerateFile`, `GenerateFiles`, `GeneratePackage`, `GenerateTree`
+  и `Config` для генерации typed bindings;
 - generated `Open*`, `Validate*`, `Check*` и typed interfaces;
 - `Host` для composition routing;
 - `RuntimeOptions` для лимитов и policy;
@@ -21,6 +22,8 @@
 ```go
 witgo.Generate(witgo.Config{
 	WIT:              "./wit",
+	WITMode:          witgo.WITInputPackage,
+	GoOverlay:        "./wit/plugin.witgo.yaml",
 	Output:           "./internal/contract",
 	Package:          "contract",
 	EnableRuntimeAPI: true,
@@ -30,6 +33,8 @@ witgo.Generate(witgo.Config{
 Что важно:
 
 - generator не переписывает исходный `.wit`;
+- `WITFiles` задаёт явный набор файлов, а `WITMode` различает file, package и
+  recursive tree; `WIT` и `WITFiles` одновременно не используются;
 - `GoOverlay` подключает versioned YAML mapping публичных Go-типов, не меняя
   wire contract; формат описан в [go-overlays.md](go-overlays.md);
 - `EnableRuntimeAPI` только добавляет generated facade для vendor capability;
@@ -90,3 +95,5 @@ Host отвечает за:
 - `ErrRuntimeClosed` - runtime уже закрыт.
 - `ErrHandleClosed` - handle недействителен для текущего runtime.
 - `ErrFuelRequestDenied` и связанные denial reasons - host не одобрил unsafe fuel request.
+- `WITError[E]` - typed payload ветки WIT `result` при включённом
+  overlay `result_error`; transport error этим типом не подменяется.

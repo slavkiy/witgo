@@ -22,6 +22,8 @@ Android и iOS намеренно относятся к generation-only targets:
 ## Что уже надёжно поддерживается
 
 - генерация typed Go bindings из одного WIT package;
+- загрузка одного WIT-файла, явного набора файлов, package-каталога или дерева;
+- необязательные Go overlays для aliases/records и `result_error`;
 - contract validation до instantiation;
 - загрузка standard WebAssembly Components;
 - host imports из Go;
@@ -56,6 +58,10 @@ Android и iOS намеренно относятся к generation-only targets:
 - `future<T>` и `stream<T>` пока не имеют полноценного typed consumer API;
 - handle нельзя безопасно переносить между независимыми runtime-box;
 - bridge не является guest plugin и не должен им становиться.
+- overlay mapping внутри `list`, `option`, `result`, `map`, tuple и variant пока
+  отклоняется до генерации; custom codec symbols и `uuid-string` не реализованы;
+- Android, iOS, WASI и targets без native loader поддерживают parser, generator
+  и generated API, но не desktop Component runtime.
 
 ## Что важно про безопасность
 

@@ -17,6 +17,10 @@ host-функции. Один и тот же WIT import может обслуж�
 - встроенный native bridge уже лежит в модуле для Linux, macOS и Windows на
   `amd64` и `arm64`, отдельная установка при запуске не нужна.
 
+Parser, generator и generated packages также компилируются на остальных Go
+targets. Запуск Component зависит от native loader и Rust/Wasmtime bridge для
+выбранной платформы.
+
 ## Установка
 
 ```sh
@@ -74,11 +78,10 @@ import (
 )
 
 func main() {
-	err := witgo.Generate(witgo.Config{
-		WIT:     "./wit",
+	err := witgo.GeneratePackage(witgo.Config{
 		Output:  "./internal/contract",
 		Package: "contract",
-	})
+	}, "./wit")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -94,6 +97,30 @@ go run generate.go
 Будет создан `internal/contract/bindings.gen.go` с типами `Info`, `Host`,
 `Plugin`, `PluginImports`, а также helper-функциями `PluginPing`,
 `ValidatePlugin`, `CheckPlugin`, `OpenPlugin` и `OpenPluginWithOptions`.
+
+Для одного файла используйте `GenerateFile`, для явно выбранного набора файлов
+одного package - `GenerateFiles`, для рекурсивного дерева одного package -
+`GenerateTree`. Старый `Generate(Config{WIT: ...})` сохранён для совместимости.
+
+### Необязательные Go-типы
+
+Стандартный WIT можно дополнить отдельным `plugin.witgo.yaml`. Например, для
+`package example:users@1.0.0` и alias `timestamp` в interface `users` WIT `s64`
+может выглядеть в публичном Go API как `time.Time`, оставаясь `s64` в Component
+ABI:
+
+```yaml
+version: 1
+types:
+  example:users/users@1.0.0#timestamp:
+    go_type: time.Time
+    import: time
+    codec: unix-seconds
+```
+
+Overlay подключается через `Config.GoOverlay`; без него generated output и
+runtime behavior остаются прежними. Полный формат описан в
+[docs/go-overlays.md](docs/go-overlays.md).
 
 ### 3. Реализуйте host-функции
 
@@ -197,7 +224,9 @@ if err := contract.CheckPlugin("./plugins/plugin.component.wasm"); err != nil {
 - `resource`, `future`, `stream` и `error-context` передаются как
   runtime-bound `witgo.Handle` и не могут безопасно мигрировать между
   независимыми runtime-box;
-- обычный Go использует `purego` без CGO, TinyGo использует системный CGo-loader.
+- обычный Go использует `purego` без CGO на desktop Linux/macOS/Windows;
+- TinyGo native runtime поддерживается на Linux и Windows с CGo; TinyGo 0.41 на
+  macOS компилирует API и generator, но не может связать `dlopen` backend.
 
 Ключевые ограничения и поведение собраны в [docs/capabilities.md](docs/capabilities.md),
 архитектура и модель доверия - в [docs/architecture.md](docs/architecture.md).
@@ -256,6 +285,7 @@ feature-флагами. До запуска `start` bridge отвечает на
 - [Troubleshooting](docs/troubleshooting.md)
 - [Проверка контрактов](docs/validation.md)
 - [Generated code](docs/generated-code.md)
+- [Go type overlays](docs/go-overlays.md)
 - [Публичный API](docs/public-api.md)
 - [TinyGo и контекстный API](docs/tinygo.md)
 - [Автоматические вложенные плагины](docs/nested-plugins.md)

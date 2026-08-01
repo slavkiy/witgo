@@ -14,6 +14,10 @@ witgo.GenerateTree(config, "./wit")
 обходит дерево рекурсивно, поэтому все найденные файлы должны объявлять один WIT
 package. Порядок переданных файлов не влияет на output.
 
+Loader не является package manager: он не скачивает и не объединяет внешние
+dependency packages. Они остаются отдельными WIT packages и связываются через
+полные package/interface IDs и Component composition.
+
 Необязательные Go-specific mappings описаны отдельно в
 [go-overlays.md](go-overlays.md); WIT-файлы при этом не изменяются.
 
@@ -70,10 +74,10 @@ func CheckPlugin(filename string) error
 func CheckPluginContext(ctx context.Context, filename string) error
 func CheckPluginWithOptions(filename string, options witgo.RuntimeOptions) error
 func CheckPluginWithOptionsContext(ctx context.Context, filename string, options witgo.RuntimeOptions) error
-func OpenPlugin(filename string, imports PluginImports) (*Plugin, error)
+func OpenPlugin(filename string, imports ...PluginImports) (*Plugin, error)
 func OpenPluginContext(ctx context.Context, filename string, imports ...PluginImports) (*Plugin, error)
-func OpenPluginWithOptions(filename string, options witgo.RuntimeOptions, imports PluginImports) (*Plugin, error)
-func OpenPluginWithOptionsContext(ctx context.Context, filename string, options witgo.RuntimeOptions, imports PluginImports) (*Plugin, error)
+func OpenPluginWithOptions(filename string, options witgo.RuntimeOptions, imports ...PluginImports) (*Plugin, error)
+func OpenPluginWithOptionsContext(ctx context.Context, filename string, options witgo.RuntimeOptions, imports ...PluginImports) (*Plugin, error)
 func (p *Plugin) Close() error
 func (p *Plugin) Restart() error
 func (p *Plugin) RestartContext(ctx context.Context) error
@@ -151,7 +155,8 @@ info, err := plugin.Metadata.Get(ctx)
 
 Generated constructor создаёт `witgo.HostImport` adapters до instantiation.
 Adapter проверяет число аргументов, поднимает каждое значение в Go-тип и
-вызывает реализацию `Host`. `nil` import отклоняется сразу.
+вызывает реализацию `Host`. Если обязательный import не передан и совместимый
+nested component не найден, открытие завершается явной ошибкой связывания.
 
 Records и остальные составные типы передаются по Canonical ABI движком
 Wasmtime. Внутренний JSON-канал между Go и bridge остаётся implementation

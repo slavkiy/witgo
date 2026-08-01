@@ -1,5 +1,26 @@
 # Руководство по миграции
 
+## WIT packages и Go overlays
+
+Старый `Generate(Config{WIT: path})` продолжает работать. Для нового кода лучше
+явно выбрать намерение:
+
+```go
+witgo.GenerateFile(config, "plugin.wit")
+witgo.GenerateFiles(config, "types.wit", "plugin.wit")
+witgo.GeneratePackage(config, "./wit")
+witgo.GenerateTree(config, "./wit")
+```
+
+`GeneratePackage` не заходит в `deps/`; `GenerateTree` рекурсивен и требует один
+package во всех найденных файлах.
+
+`Config.GoOverlay` opt-in: без него перегенерация не меняет типы из-за появления
+overlay feature. После включения overlay публичные aliases/records могут
+измениться, поэтому generated diff и реализации host interfaces нужно проверить
+как обычное изменение API. WIT и plugin binary пересобирать не требуется, если
+wire contract не менялся.
+
 ## Переход на единые interfaces композиции
 
 Generated методы WIT interfaces теперь всегда возвращают transport/runtime
@@ -145,6 +166,8 @@ Generator теперь производит:
 4. Встроить `ValidatePlugin` или `CheckPlugin` в startup path.
 5. Перепроверить examples/CI на вашей платформе.
 6. Проверить все пути, где используются custom `BridgePath` или env-переменные.
+7. Если включён `GoOverlay`, проверить generated wire adapters и обработку
+   `WITError[E]` через `errors.As`.
 
 ## Что делать, если после обновления всё сломалось
 

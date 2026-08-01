@@ -19,6 +19,17 @@
 Для consumer-плагина другой plugin выглядит как обычный WIT import. Он не видит
 registry, runtime options, bridge internals или чужие файлы.
 
+## Contract, package и Go overlay
+
+WIT остаётся единственным wire-контрактом. Несколько `.wit` одного package
+детерминированно объединяются до lowering. Каталог `deps/` считается границей
+другого package и не смешивается с корневым package в `GeneratePackage`.
+
+Необязательный Go overlay применяется после WIT lowering. Он меняет публичные
+Go-типы, но не structural signatures, manifest или Component ABI. Generator
+создаёт private wire types и прямые lower/lift adapters без runtime registry и
+reflection в call hot path.
+
 ## Composition model
 
 Прозрачная композиция держится на `Host`, который хранит registry providers и
@@ -106,7 +117,9 @@ Rust-модуль здесь не обычный plugin. Это доверенн
 `witgo` работает in-process и не требует sidecar-процесса.
 
 - обычный Go использует `purego` loader без CGO;
-- TinyGo использует CGo-based dynamic loader;
+- TinyGo использует CGo-based dynamic loader на Linux и Windows;
+- TinyGo 0.41 на macOS остаётся generation-only из-за невозможности связать
+  системные `dlopen` symbols;
 - встроенные bridge-библиотеки поставляются для Linux, macOS и Windows на
   `amd64` и `arm64`;
 - при запуске используется строгий version handshake без fallback-режима.

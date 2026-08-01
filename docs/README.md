@@ -13,7 +13,7 @@
 
 - [Проверка контрактов](validation.md)
 - [Сгенерированный Go-код](generated-code.md)
-- [Go type overlays](go-overlays.md)
+- [Go type overlays](go-overlays.md) - native Go types поверх неизменного WIT ABI.
 - [Прозрачная композиция плагинов](plugin-composition.md)
 - [Автоматические вложенные плагины](nested-plugins.md)
 - [Troubleshooting](troubleshooting.md)

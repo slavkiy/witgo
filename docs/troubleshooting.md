@@ -132,7 +132,23 @@ deadlock внутри доверенного native-кода.
 Для обычной Go-сборки `witgo` CGO не нужен. C toolchain обязателен только для
 TinyGo backend-а и для отдельных вспомогательных инструментов примеров.
 
-## 10. Как быстро локализовать источник проблемы
+## 10. Ошибка Go overlay
+
+Generator останавливается до записи output, если overlay содержит неизвестный
+canonical ID, schema version, codec или несовместимый Go type/import.
+
+Проверьте:
+
+- ID имеет вид `namespace:package/interface@version#member`;
+- alias действительно объявлен в указанном interface;
+- `time.Time` и `time.Duration` используют `import: time`;
+- codec соответствует WIT `s64`;
+- mapping не находится внутри пока неподдержанного container или variant.
+
+Путь overlay и проблемный ID входят в текст ошибки. Не исправляйте такую ошибку
+изменением WIT на нестандартный Go-синтаксис.
+
+## 11. Как быстро локализовать источник проблемы
 
 Практичный порядок:
 

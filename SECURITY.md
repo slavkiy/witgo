@@ -69,6 +69,14 @@ WebAssembly-зависимости, использующие живые handles,
 
 Хорошая модель: validation - это gate на ABI, а не полная security-проверка.
 
+## Go overlays
+
+Go overlay не расширяет возможности plugin и не меняет WIT ABI. Он обрабатывается
+доверенным generator до компиляции приложения и создаёт typed lower/lift code.
+Overlay-файлы следует review-ить как исходный Go-код: они выбирают публичные
+типы и codecs. Generator отклоняет pointers, channels, functions, interfaces,
+`context.Context`, `unsafe.Pointer` и неизвестные codecs.
+
 ## Native bridge
 
 Bridge загружается в тот же процесс, что и Go host.

@@ -2,7 +2,8 @@
 
 Go module и native bridge релизятся вместе. Релиз считается корректным только
 тогда, когда совпадают protocol version, bridge version, feature list и
-встроенные native libraries. Актуальный релиз в репозитории сейчас: `v0.2.0`.
+встроенные native libraries. Текущая линия bridge ABI имеет version `0.2.0` и
+protocol `3`; номер Go module release задаётся Git tag отдельно.
 
 Сначала вручную запускается workflow `bridge-binaries` на release-ветке. Он
 собирает и тестирует Windows, Linux и macOS shared libraries для `amd64` и
@@ -40,4 +41,10 @@ cd cmd/witgen && go test ./...
 cd ../../bridge && cargo fmt --check
 cargo test --locked
 cargo clippy --locked -- -D warnings
+CGO_ENABLED=1 tinygo test -run '^$' ./...
+GOOS=wasip1 GOARCH=wasm CGO_ENABLED=0 go test -c -o /tmp/witgo-wasm-role.test .
 ```
+
+Основная CI-матрица использует Go 1.18, поэтому нельзя добавлять API стандартной
+библиотеки из более новых Go без fallback. TinyGo job использует 0.41.1 и
+выполняет native handshake на Linux после сборки текущего Rust bridge.
