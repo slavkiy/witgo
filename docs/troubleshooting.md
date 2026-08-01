@@ -159,3 +159,59 @@ canonical ID, schema version, codec или несовместимый Go type/im
 5. Только потом отлаживать сложные типы, handles и production limits.
 
 Обычно это быстрее, чем сразу идти в полную business-логику.
+
+## 12. В generated package нет `ExportPlugin` или `<Interface>Guest`
+
+Причина: bindings были созданы в host mode - это режим по умолчанию.
+
+Решение:
+
+```go
+witgo.GeneratePackage(witgo.Config{
+	Mode:    witgo.GenerateGuest,
+	World:   "plugin",
+	Output:  "./internal/contract",
+	Package: "contract",
+}, "./wit")
+```
+
+Не пытайтесь использовать `ExecutionRolePlugin` вместо guest generation: роль
+не создаёт Canonical ABI и регистрацию экспортов.
+
+## 13. В guest package неожиданно нет `OpenPlugin`
+
+Это ожидаемо. `OpenPlugin`, validation и composition - API host-процесса.
+WASM guest реализует exports через `ExportPlugin` и вызывает предоставленные
+host capabilities через `contract.Imports`.
+
+Если в одном проекте нужны обе стороны, генерируйте два package в разные
+каталоги, например `internal/hostcontract` и `internal/guestcontract`.
+
+## 14. Не найден `wit-bindgen-go` или `go.bytecodealliance.org/cm`
+
+Установите toolchain:
+
+```sh
+go install go.bytecodealliance.org/cmd/wit-bindgen-go@v0.7.0
+go get go.bytecodealliance.org/cm@v0.7.0
+```
+
+Для нестандартного расположения бинарника используйте `Config.GuestBindgen` или
+CLI-флаг `-guest-bindgen`. Без сети рекомендуется устанавливать tool заранее:
+fallback через `go run` тоже должен получить модуль из cache.
+
+## 15. TinyGo создал core module или не нашёл WIT world
+
+Для готового Component нужны target `wasip2`, packaged WIT и точное имя world:
+
+```sh
+witgen -mode guest -wit ./wit -world plugin \
+  -out ./internal/contract -package contract \
+  -build-main ./cmd/plugin \
+  -wit-package ./wit/plugin.wit.package.wasm \
+  -component-out ./dist/plugin.component.wasm
+```
+
+Проверьте результат командой `wasm-tools component wit`. Если `World` не задан
+при нескольких worlds, генератор завершится до запуска bindgen. Direct world
+functions, `GoOverlay` и `GenerateFiles` в guest mode пока не поддерживаются.

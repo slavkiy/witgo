@@ -20,7 +20,31 @@ type Config struct {
 	// EnableRuntimeAPI emits the opt-in witgo:runtime@1.0.0 guest facade and
 	// enables its host binding in generated Open functions.
 	EnableRuntimeAPI bool
+	// Mode selects which side of the component boundary is generated. The zero
+	// value is GenerateHost and preserves the historical host SDK.
+	Mode GenerationMode
+	// World selects the WIT world in guest mode. It may be omitted when the
+	// input contains exactly one world.
+	World string
+	// PackageRoot is the Go import path of Output. Guest bindings use it for
+	// the packages generated below Output. When empty it is derived from the
+	// nearest go.mod.
+	PackageRoot string
+	// GuestBindgen is an optional path to wit-bindgen-go. The default searches
+	// PATH. It is used only in guest mode.
+	GuestBindgen string
 }
+
+// GenerationMode selects the API surface emitted from a WIT world.
+type GenerationMode uint8
+
+const (
+	// GenerateHost emits loaders, validation and composition clients.
+	GenerateHost GenerationMode = iota
+	// GenerateGuest emits Go/TinyGo Component Model guest bindings. Host-only
+	// constructors such as OpenPlugin are deliberately absent.
+	GenerateGuest
+)
 
 // WITInputMode controls how a WIT input path is expanded.
 type WITInputMode uint8

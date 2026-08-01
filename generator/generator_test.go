@@ -114,6 +114,45 @@ world plugin {
 	parseGenerated(t, filename, source)
 }
 
+func TestRenderGuestFacadeSeparatesPluginAPIFromHostAPI(t *testing.T) {
+	model, err := lowerFiles([]sourceFile{{path: "plugin.wit", content: []byte(`package simple:model@1.0.0;
+interface host { process: func(value: string) -> string; }
+interface metadata { name: func() -> string; }
+world plugin { import host; export metadata; }
+`)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	world, err := selectGuestWorld(model, "plugin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source, err := renderGuestFacade(model, world, "contract", "example.com/app/internal/contract")
+	if err != nil {
+		t.Fatal(err)
+	}
+	generated := string(source)
+	for _, expected := range []string{
+		"type MetadataGuest interface",
+		"type PluginGuest struct",
+		"func ExportPlugin(implementation PluginGuest) error",
+		"metadata.Exports.Name = implementation.Metadata.Name",
+		"var Imports = struct",
+		"return host.Process(value)",
+		`example.com/app/internal/contract/simple/model/metadata`,
+	} {
+		if !strings.Contains(generated, expected) {
+			t.Errorf("guest facade does not contain %q\n%s", expected, generated)
+		}
+	}
+	for _, unwanted := range []string{"OpenPlugin", "ValidatePlugin", "witgo.RuntimeOptions"} {
+		if strings.Contains(generated, unwanted) {
+			t.Errorf("guest facade unexpectedly contains host API %q", unwanted)
+		}
+	}
+	parseGenerated(t, "bindings.gen.go", source)
+}
+
 func TestGenerateRejectsDifferentPackages(t *testing.T) {
 	witDir := t.TempDir()
 	outputDir := t.TempDir()

@@ -82,5 +82,9 @@ func generatorConfig(config Config) generator.Config {
 		Package:          config.Package,
 		Filename:         config.Filename,
 		EnableRuntimeAPI: config.EnableRuntimeAPI,
+		Mode:             generator.GenerationMode(config.Mode),
+		World:            config.World,
+		PackageRoot:      config.PackageRoot,
+		GuestBindgen:     config.GuestBindgen,
 	}
 }

@@ -91,6 +91,26 @@ Bridge загружается в тот же процесс, что и Go host.
 Именно поэтому bridge должен обновляться, проверяться и поставляться как
 доверенный release artifact.
 
+## Guest build toolchain
+
+Guest generation и runtime loading имеют разные trust boundaries.
+`wit-bindgen-go`, `go.bytecodealliance.org/cm`, TinyGo, WIT package и
+`wasm-tools`, используемый TinyGo, являются build-time supply chain плагина.
+Они не получают полномочия host runtime, но их компрометация может изменить
+Canonical ABI glue или итоговый `.wasm`.
+
+Для воспроизводимых builds:
+
+- закрепляйте версии `wit-bindgen-go`, TinyGo и WIT package;
+- устанавливайте `wit-bindgen-go` заранее и передавайте `GuestBindgen`, если
+  build выполняется без сети;
+- проверяйте итоговый interface через `wasm-tools component wit`;
+- подписывайте именно готовый `plugin.component.wasm`;
+- на host всё равно выполняйте `ValidatePlugin` перед `OpenPlugin`.
+
+`ExportPlugin` не выдаёт guest дополнительных capabilities. Доступны только те
+WIT imports, которые host предоставит при instantiation.
+
 ## Рекомендации для production
 
 ### 1. Минимизируйте host surface

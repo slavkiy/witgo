@@ -25,7 +25,18 @@ type Config struct {
 	Package          string
 	Filename         string
 	EnableRuntimeAPI bool
+	Mode             GenerationMode
+	World            string
+	PackageRoot      string
+	GuestBindgen     string
 }
+
+type GenerationMode uint8
+
+const (
+	GenerateHost GenerationMode = iota
+	GenerateGuest
+)
 
 // InputMode controls expansion of a WIT source path.
 type InputMode uint8
@@ -50,6 +61,9 @@ func New(config Config) (*Generator, error) {
 	}
 	if config.WITMode > InputTree {
 		return nil, fmt.Errorf("invalid WIT input mode %d", config.WITMode)
+	}
+	if config.Mode > GenerateGuest {
+		return nil, fmt.Errorf("invalid generation mode %d", config.Mode)
 	}
 	if strings.TrimSpace(config.Output) == "" {
 		config.Output = "."
@@ -92,6 +106,12 @@ func (g *Generator) Generate() error {
 	}
 	if packageName == "" {
 		return fmt.Errorf("go package name is required when WIT package is not declared")
+	}
+	if g.config.Mode == GenerateGuest {
+		if overlay != nil {
+			return fmt.Errorf("Go overlays are not supported by guest bindings")
+		}
+		return g.generateGuest(model, packageName)
 	}
 
 	source, err := RenderWithOptions(model, packageName, RenderOptions{EnableRuntimeAPI: g.config.EnableRuntimeAPI, GoOverlay: overlay})

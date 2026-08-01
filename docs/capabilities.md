@@ -4,8 +4,10 @@
 
 ## Платформы
 
-Парсер и генератор являются переносимым Go-кодом. Для выполнения component нужен
-Rust/Wasmtime bridge, собранный под конкретные OS и архитектуру.
+Парсер и генератор являются переносимым Go-кодом. Для выполнения component в
+host-приложении нужен Rust/Wasmtime bridge, собранный под конкретные OS и
+архитектуру. Для сборки самого guest-компонента bridge не нужен: используется
+guest generator и TinyGo `wasip2`.
 
 - встроенный bridge: Linux, macOS и Windows на `amd64` и `arm64`;
 - внешний `RuntimeOptions.BridgePath`: Linux, macOS, Windows и FreeBSD (FreeBSD
@@ -22,6 +24,11 @@ Android и iOS намеренно относятся к generation-only targets:
 ## Что уже надёжно поддерживается
 
 - генерация typed Go bindings из одного WIT package;
+- отдельные host и guest surfaces через `GenerateHost`/`GenerateGuest`;
+- Go guest exports через `<Interface>Guest` и `Export<World>`;
+- Canonical ABI imports/exports через `wit-bindgen-go`;
+- сборка Go guest в WebAssembly Component через TinyGo `wasip2` с Component
+  Type metadata;
 - загрузка одного WIT-файла, явного набора файлов, package-каталога или дерева;
 - необязательные Go overlays для aliases/records и `result_error`;
 - contract validation до instantiation;
@@ -58,10 +65,15 @@ Android и iOS намеренно относятся к generation-only targets:
 - `future<T>` и `stream<T>` пока не имеют полноценного typed consumer API;
 - handle нельзя безопасно переносить между независимыми runtime-box;
 - bridge не является guest plugin и не должен им становиться.
+- guest mode требует отдельные `wit-bindgen-go`, `go.bytecodealliance.org/cm`
+  и TinyGo; эти зависимости не встраиваются в host runtime;
+- guest mode пока не поддерживает `GoOverlay`, `GenerateFiles` и direct world
+  functions: exports следует объявлять внутри WIT interface;
 - overlay mapping внутри `list`, `option`, `result`, `map`, tuple и variant пока
   отклоняется до генерации; custom codec symbols и `uuid-string` не реализованы;
-- Android, iOS, WASI и targets без native loader поддерживают parser, generator
-  и generated API, но не desktop Component runtime.
+- Android, iOS и targets без native loader поддерживают parser и generator, но
+  не desktop Component runtime. WASI/TinyGo `wasip2` отдельно поддерживается как
+  target для guest-компонента, а не как host loader.
 
 ## Что важно про безопасность
 

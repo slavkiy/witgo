@@ -1,5 +1,32 @@
 # Руководство по миграции
 
+## Переход от host-only генерации к host/guest режимам
+
+Нулевое значение `Config.Mode` - `GenerateHost`, поэтому существующий код не
+меняется и продолжает получать `Open*`, `Validate*` и `Check*`.
+
+Если раньше package из `internal/contract` подключали к `GOARCH=wasm` и
+ожидали, что `ExecutionRolePlugin` превратит его в плагин, перегенерируйте
+отдельный guest package:
+
+```go
+witgo.GeneratePackage(witgo.Config{
+	Mode:    witgo.GenerateGuest,
+	World:   "plugin",
+	Output:  "./internal/guestcontract",
+	Package: "guestcontract",
+}, "./wit")
+```
+
+После миграции implementation удовлетворяет `<Interface>Guest`, регистрируется
+через `Export<World>` из `init`, а host imports вызываются через `Imports`.
+Component собирается TinyGo `wasip2`. Если один проект содержит обе стороны,
+генерируйте host и guest bindings в разные каталоги.
+
+`OpenPlugin` не был переименован: он сознательно отсутствует в guest mode.
+`GoOverlay`, `GenerateFiles` и direct world functions в guest mode пока не
+поддерживаются.
+
 ## WIT packages и Go overlays
 
 Старый `Generate(Config{WIT: path})` продолжает работать. Для нового кода лучше

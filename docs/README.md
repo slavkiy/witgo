@@ -17,6 +17,7 @@
 - [Прозрачная композиция плагинов](plugin-composition.md)
 - [Автоматические вложенные плагины](nested-plugins.md)
 - [Troubleshooting](troubleshooting.md)
+- [Go WASM plugins: guest mode](go-guest-plugins.md)
 
 ## Для специальных сценариев
 

@@ -30,6 +30,31 @@ Go-типы, но не structural signatures, manifest или Component ABI. Gen
 создаёт private wire types и прямые lower/lift adapters без runtime registry и
 reflection в call hot path.
 
+## Host и guest generation
+
+Один WIT world используется двумя независимыми generated surfaces:
+
+```text
+WIT world
+├── GenerateHost  → Open/Validate/Check, typed clients, composition
+└── GenerateGuest → Guest interfaces, Export<World>, typed Imports
+                    ↓
+                 Canonical ABI glue (wit-bindgen-go)
+                    ↓
+                 TinyGo wasip2 + Component Type metadata
+                    ↓
+                 plugin.component.wasm
+```
+
+Host package работает поверх `witgo.Runtime` и native bridge. Guest package не
+может и не должен загружать Components: `OpenPlugin` там отсутствует. Его
+`Export<World>` только связывает пользовательскую Go-реализацию с generated
+Canonical ABI entry points.
+
+`ExecutionRolePlugin` не участвует в lowering/lifting и componentization. Он
+лишь сообщает, что текущая сборка имеет `GOARCH=wasm`; полноценный ABI создаёт
+guest generator, а metadata и итоговый Component - TinyGo `wasip2` build.
+
 ## Composition model
 
 Прозрачная композиция держится на `Host`, который хранит registry providers и

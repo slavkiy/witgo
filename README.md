@@ -1,9 +1,11 @@
 <p align="center"><img src="assets/art.png" alt="art" width="300"></p>
 
-`witgo` генерирует типизированный Go API из WIT-контракта и позволяет Go-host
-загружать WebAssembly Component-плагины, вызывать их exports и предоставлять им
-host-функции. Один и тот же WIT import может обслуживаться Go-кодом или другим
-зарегистрированным WebAssembly Component без изменения consumer-кода.
+`witgo` генерирует типизированный Go API из WIT-контракта для обеих сторон
+Component Model. Go-host может загружать WebAssembly Component-плагины,
+вызывать их exports и предоставлять host-функции, а guest-режим позволяет
+реализовать и собрать сам плагин на Go/TinyGo. Один и тот же WIT import может
+обслуживаться Go-кодом или другим зарегистрированным WebAssembly Component без
+изменения consumer-кода.
 
 > Статус: beta. Библиотека уже покрывает основной сценарий Component Model,
 > строгую проверку контракта до запуска, version handshake с Rust bridge и
@@ -16,6 +18,10 @@ host-функции. Один и тот же WIT import может обслуж�
 - плагин в формате WebAssembly Component (`.wasm`), а не core Wasm module;
 - встроенный native bridge уже лежит в модуле для Linux, macOS и Windows на
   `amd64` и `arm64`, отдельная установка при запуске не нужна.
+
+Для написания Go guest-плагинов дополнительно нужны `wit-bindgen-go`, пакет
+`go.bytecodealliance.org/cm` и TinyGo с target `wasip2`. Они не нужны обычному
+host-приложению.
 
 Parser, generator и generated packages также компилируются на остальных Go
 targets. Запуск Component зависит от native loader и Rust/Wasmtime bridge для
@@ -97,6 +103,12 @@ go run generate.go
 Будет создан `internal/contract/bindings.gen.go` с типами `Info`, `Host`,
 `Plugin`, `PluginImports`, а также helper-функциями `PluginPing`,
 `ValidatePlugin`, `CheckPlugin`, `OpenPlugin` и `OpenPluginWithOptions`.
+
+Это host-режим по умолчанию. Для кода самого плагина задайте
+`Mode: witgo.GenerateGuest` и `World: "plugin"`. В таком package будут
+`MetadataGuest`, `PluginGuest`, `ExportPlugin` и `Imports.Host`, но не будет
+host-only функций `OpenPlugin`, `ValidatePlugin` и composition API. Полный
+пример находится в [руководстве по Go guest-плагинам](docs/go-guest-plugins.md).
 
 Для одного файла используйте `GenerateFile`, для явно выбранного набора файлов
 одного package - `GenerateFiles`, для рекурсивного дерева одного package -
@@ -281,6 +293,7 @@ feature-флагами. До запуска `start` bridge отвечает на
 
 - [Оглавление документации](docs/README.md)
 - [Tutorial: Rust Component + Go host](docs/tutorial-rust-component.md)
+- [Go WASM plugin + Go host](docs/go-guest-plugins.md)
 - [Архитектура runtime](docs/architecture.md)
 - [Troubleshooting](docs/troubleshooting.md)
 - [Проверка контрактов](docs/validation.md)

@@ -7,7 +7,11 @@
 
 - `Generate`, `GenerateFile`, `GenerateFiles`, `GeneratePackage`, `GenerateTree`
   и `Config` для генерации typed bindings;
-- generated `Open*`, `Validate*`, `Check*` и typed interfaces;
+- `GenerateHost` и `GenerateGuest` для явного выбора стороны Component Model;
+- generated host API: `Open*`, `Validate*`, `Check*` и typed interfaces;
+- generated guest API: `<Interface>Guest`, `<World>Guest`, `Export<World>` и
+  `Imports`;
+- `BuildGuestComponent` и `GuestBuildConfig` для TinyGo `wasip2` build;
 - `Host` для composition routing;
 - `RuntimeOptions` для лимитов и policy;
 - `Handle` для runtime-bound Component handles.
@@ -42,6 +46,48 @@ witgo.Generate(witgo.Config{
 
 `TypeCodec[Wire, Go]` является публичной typed абстракцией для codec tooling.
 Встроенные overlay codecs генерируются прямыми функциями без runtime reflection.
+
+### Guest generator
+
+```go
+witgo.Generate(witgo.Config{
+	WIT:         "./wit",
+	WITMode:     witgo.WITInputPackage,
+	Mode:        witgo.GenerateGuest,
+	World:       "plugin",
+	Output:      "./internal/contract",
+	Package:     "contract",
+	PackageRoot: "example.com/plugin/internal/contract",
+})
+```
+
+Поля guest-конфигурации:
+
+- `Mode` - `GenerateHost` по умолчанию или `GenerateGuest`;
+- `World` - имя реализуемого world; обязательно при нескольких worlds;
+- `PackageRoot` - import path каталога `Output`; обычно выводится из ближайшего
+  `go.mod`;
+- `GuestBindgen` - необязательный путь к `wit-bindgen-go`.
+
+Guest mode не использует native Wasmtime loader и не генерирует `Open*`.
+Низкоуровневые Canonical ABI declarations создаются `wit-bindgen-go`, а
+сгенерированный root package предоставляет единый API регистрации реализации.
+
+### Guest component build
+
+```go
+err := witgo.BuildGuestComponent(witgo.GuestBuildConfig{
+	Main:       "./cmd/plugin",
+	WITPackage: "./wit/plugin.wit.package.wasm",
+	World:      "plugin",
+	Output:     "./dist/plugin.component.wasm",
+	NoDebug:    true,
+})
+```
+
+Команда запускает TinyGo с `-target=wasip2`, `--wit-package` и `--wit-world`.
+TinyGo добавляет Component Type metadata и выдаёт готовый Component, а не core
+Wasm module.
 
 ## RuntimeOptions
 

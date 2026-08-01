@@ -2,6 +2,17 @@
 
 ## Следующий релиз
 
+- Добавлен отдельный `GenerateGuest` mode для написания WebAssembly Component
+  plugins на Go: `<Interface>Guest`, `<World>Guest`, `Export<World>` и typed
+  host imports. Host-only `Open*`/validation/composition API в этом режиме не
+  генерируется.
+- Guest generator интегрирован с `wit-bindgen-go` для Canonical ABI
+  `wasmimport`/`wasmexport` glue.
+- Добавлены `GuestBuildConfig`, `BuildGuestComponent` и CLI-флаги TinyGo
+  `wasip2` build с WIT package, world и Component Type metadata.
+- Документация разделяет native TinyGo host loader, WASI guest build и
+  compile-time роль `ExecutionRolePlugin`.
+
 - Добавлены Go-specific type overlays в отдельном versioned YAML-файле без
   изменения стандартного WIT и Component ABI.
 - Добавлены `GenerateFile`, `GenerateFiles`, `GeneratePackage`, `GenerateTree`,

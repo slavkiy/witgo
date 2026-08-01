@@ -18,10 +18,40 @@ Loader не является package manager: он не скачивает и н
 dependency packages. Они остаются отдельными WIT packages и связываются через
 полные package/interface IDs и Component composition.
 
+## Два режима генерации
+
+`Config.Mode` определяет, для какой стороны границы создаётся package:
+
+- `witgo.GenerateHost` - значение по умолчанию; создаёт typed clients,
+  `Open*`, `Validate*`, `Check*`, provider registration и composition API;
+- `witgo.GenerateGuest` - создаёт реализацию WebAssembly guest: интерфейсы
+  `<Interface>Guest`, структуру `<World>Guest`, `Export<World>` и typed
+  `Imports.<Interface>`.
+
+```go
+err := witgo.GeneratePackage(witgo.Config{
+	Mode:        witgo.GenerateGuest,
+	World:       "plugin",
+	Output:      "./internal/contract",
+	Package:     "contract",
+	PackageRoot: "example.com/plugin/internal/contract", // обычно выводится из go.mod
+}, "./wit")
+```
+
+Guest mode намеренно не генерирует `OpenPlugin`: плагин не загружает сам себя.
+Canonical ABI declarations создаёт `wit-bindgen-go`; при отсутствии бинарника
+в `PATH` запускается закреплённая версия через `go run`. `GoOverlay` и
+`GenerateFiles` в guest mode пока не поддерживаются. Если в WIT несколько
+world, `Config.World` обязателен.
+
+Для финальной component-сборки используется `BuildGuestComponent` или CLI
+флаги `-build-main`, `-wit-package` и `-component-out`. Подробный workflow - в
+[go-guest-plugins.md](go-guest-plugins.md).
+
 Необязательные Go-specific mappings описаны отдельно в
 [go-overlays.md](go-overlays.md); WIT-файлы при этом не изменяются.
 
-Для каждого WIT interface создаются единый Go interface, `InterfaceDescriptor`,
+В host mode для каждого WIT interface создаются единый Go interface, `InterfaceDescriptor`,
 typed provider client, `Register…`, `Resolve…`, `AutoResolve…` и `MustResolve…`.
 Один interface используется для Go implementation, component export и import
 bindings. Для world дополнительно генерируются `…Bindings`, `AutoBind…` и
