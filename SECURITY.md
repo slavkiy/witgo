@@ -1,4 +1,15 @@
-# Security Model
+# Модель безопасности
+
+## Композиция компонентов
+
+Component не получает доступ к `Host`, registry или пути соседних плагинов.
+Вызов другого компонента возможен только через WIT import, который приложение
+явно связало с совместимым зарегистрированным provider. Перед связыванием
+проверяются полный package/interface/version ID и structural signatures.
+WebAssembly-зависимости, использующие живые handles, компонуются до instantiation
+в один Store. Между независимыми Store и через Go callback handles не
+передаются и дают `ErrCrossRuntimeHandle`. Циклы графа, дубликаты точного ID и
+несовместимые resource identities отклоняются до запуска гостевого кода.
 
 ## Кратко
 

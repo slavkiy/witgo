@@ -1,5 +1,12 @@
 # Возможности и ограничения
 
+Композиция плагинов не расширяет capabilities. Зарегистрированный provider
+доступен потребителю только через явно связанный WIT import. Registry не
+передаётся компоненту. `resource`, `future`, `stream` и `error-context` между
+WebAssembly-компонентами передаются только внутри автоматически собранного
+единого Store; попытка вынести их в другую коробку или Go callback возвращает
+`ErrCrossRuntimeHandle`.
+
 Этот документ описывает фактическое текущее состояние `witgo`. Здесь важно
 разделять три уровня поддержки:
 
@@ -159,8 +166,9 @@ Core WebAssembly modules не поддерживаются и отклоняют
   semver ranges и без compatibility adapters;
 - лишняя функция считается несовместимостью так же, как и отсутствующая;
 - подпись и доверие к самому `.wasm`-файлу validation не проверяет;
-- capability policy как отдельный API-объект пока отсутствует: приложение
-  может инспектировать `ImportNames`, но решение принимает само.
+- capability policy уже доступен как `witgo.CapabilityPolicy` и
+  `InspectRequiredCapabilities*`, но это пока rule-based allow/deny фильтр без
+  richer policy language, sandbox permissions или отдельной declarative model.
 
 `ValidationReport` даёт `Err`, `Summary`, `ProblemCount`, а `Contract` даёт
 `ImportNames`, `ExportNames`, `FunctionNames`, `Requires`, `Provides` и
@@ -186,11 +194,11 @@ package.
 
 | Опция | Что делает | Ограничение |
 | --- | --- | --- |
-| `Fuel` | Общий budget Store | Нельзя использовать вместе с `FuelPerCall`; host callback fuel не потребляет. |
+| `Fuel` | Общий budget Store всей коробки | Нельзя использовать вместе с `FuelPerCall`; все скомпонованные WebAssembly instances расходуют этот budget, host callback fuel не потребляет. |
 | `FuelPerCall` | Сбрасывает budget перед каждым export call | Это budget отдельного вызова, а не общий deadline. |
 | `Timeout` | Epoch deadline для Wasm-вызова | Не отменяет Go callback и native deadlock. |
 | `MemoryLimitBytes` | Лимит каждой linear memory | Не является общим лимитом памяти процесса. |
-| `InstanceLimit` | Лимит Component instances в Store | Один `Runtime` всё равно создаёт один основной instance. |
+| `InstanceLimit` | Лимит Component instances в Store | Должен покрывать root и все instances same-Store графа; повторно используемый provider с тем же графом создаётся один раз. |
 | `MaxResultBytes` | Лимит in-memory protocol message | Защищает и входящие, и исходящие сообщения; отдельного streaming API нет. |
 
 Сейчас нет отдельных лимитов для tables, размера component-файла, количества
@@ -206,8 +214,9 @@ package.
 | macOS | да | да |
 | Windows | да | да |
 
-Bridge работает in-process, вызывается через `purego` и не требует CGO или
-отдельного sidecar-процесса. Встроенная библиотека распаковывается в user
+Bridge работает in-process и не требует отдельного sidecar-процесса. Обычный
+Go вызывает его через `purego` без CGO, а TinyGo - через системный CGo-loader.
+Встроенная библиотека распаковывается в user
 cache, потому что ОС не умеет загружать shared library прямо из Go byte slice.
 
 Порядок поиска:
@@ -242,7 +251,6 @@ CI собирает и тестирует все шесть OS/architecture comb
 ## Пока отсутствует
 
 - generated mock plugin, host recorder и fixture generator;
-- capability policy с allow/deny правилами;
 - hooks/observer, метрики duration/fuel/memory и OpenTelemetry adapter;
 - instance pool;
 - hot reload;

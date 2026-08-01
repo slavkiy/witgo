@@ -63,14 +63,14 @@ world plugin {
 		"func OpenPlugin",
 		"func OpenPluginWithOptions",
 		"binding userBinding",
-		"func (value User) Save() (bool, error)",
+		"func (value User) Save(ctx context.Context) (bool, error)",
 		`WITPackageID        = "simple:model@1.0.0"`,
-		`runtime.Call("simple:model/sso@1.0.0#get")`,
+		`runtime.CallContext(ctx, "simple:model/sso@1.0.0#get")`,
 		`witgo.LoadRuntimeWithContract`,
 		`type PluginImports struct`,
 		`func PluginPing() witgo.Contract`,
 		`func ValidatePlugin(filename string) (witgo.ValidationReport, error)`,
-		`witgo.ValidateComponent(filename, PluginPing())`,
+		`witgo.ValidateComponentContext(ctx, filename, PluginPing())`,
 		`func CheckPlugin(filename string) error`,
 		`return report.Err()`,
 		`"simple:model/host@1.0.0#current-user"`,
@@ -79,8 +79,13 @@ world plugin {
 		`"()->(record{name:string,age:s64})"`,
 		`Interface: "simple:model/host@1.0.0"`,
 		`Function: "current-user"`,
+		`if imports.Host != nil`,
+		`_witgoImports = append(_witgoImports, witgo.HostImport{`,
 		"func (c *Plugin) Close() error",
-		"func (c *pluginSSOClient) Get() (User, error)",
+		"func (c *Plugin) Restart() error",
+		"reopen func(context.Context) (runtimeCaller, error)",
+		"client.SSO = client.ssoClient",
+		"func (c *pluginSSOClient) Get(ctx context.Context) (User, error)",
 	} {
 		if !strings.Contains(string(source), expected) {
 			t.Errorf("generated source does not contain %q", expected)
@@ -95,6 +100,7 @@ world plugin {
 		"func NewPlugin",
 		"func LowerUser",
 		"func LiftUser",
+		"plugin import host is nil",
 		"map[string]any",
 		"ReadMemory(",
 		"readRecord[",
@@ -178,11 +184,11 @@ world plugin {
 	normalized := strings.Join(strings.Fields(string(source)), " ")
 	for _, expected := range []string{
 		"Metadata Metadata",
-		"func (c *pluginMetadataClient) Get() (Info, error)",
-		`c.runtime.Call("test:metadata/metadata@1.0.0#get")`,
+		"func (c *pluginMetadataClient) Get(ctx context.Context) (Info, error)",
+		`c.runtime.CallContext(ctx, "test:metadata/metadata@1.0.0#get")`,
 		`Interface: "test:metadata/host@1.0.0"`,
 		`Function: "process-string"`,
-		`imports.Host.ProcessString(_witgoArg0)`,
+		`imports.Host.ProcessString(ctx, _witgoArg0)`,
 	} {
 		if !strings.Contains(normalized, expected) {
 			t.Errorf("generated source does not contain %q", expected)
@@ -228,8 +234,8 @@ world plugin {
 	normalized := strings.Join(strings.Fields(string(source)), " ")
 	for _, expected := range []string{
 		"type PluginImports struct { Cache Cache Logger Logger Clock Clock }",
-		"func OpenPlugin(filename string, imports PluginImports) (*Plugin, error)",
-		"func OpenPluginWithOptions(filename string, _witgoOptions witgo.RuntimeOptions, imports PluginImports) (*Plugin, error)",
+		"func OpenPlugin(filename string, imports ...PluginImports) (*Plugin, error)",
+		"func OpenPluginWithOptions(filename string, _witgoOptions witgo.RuntimeOptions, imports ...PluginImports) (*Plugin, error)",
 		"type Color string",
 		`ColorGreen Color = "green"`,
 		"func (value Permissions) MarshalJSON() ([]byte, error)",
@@ -241,6 +247,61 @@ world plugin {
 		}
 	}
 	parseGenerated(t, filepath.Join(outputDir, DefaultFilename), source)
+}
+
+func TestGenerateTransparentPluginCompositionAPI(t *testing.T) {
+	dir := t.TempDir()
+	wit := `package example:pipeline@1.0.0;
+
+interface image-codec {
+  decode: func(data: list<u8>) -> result<string, string>;
+}
+
+world codec-plugin {
+  export image-codec;
+}
+
+world processor-plugin {
+  import image-codec;
+}
+`
+	if err := os.WriteFile(filepath.Join(dir, "pipeline.wit"), []byte(wit), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	output := filepath.Join(dir, "out")
+	if err := Generate(Config{WIT: dir, Output: output, Package: "contract"}); err != nil {
+		t.Fatal(err)
+	}
+	source, err := os.ReadFile(filepath.Join(output, DefaultFilename))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(source)
+	for _, want := range []string{
+		"type ImageCodec interface {",
+		"Decode(ctx context.Context, data []uint8) (witgo.Result[string, string], error)",
+		"var ImageCodecDescriptor = witgo.InterfaceDescriptor{",
+		`ID: "example:pipeline/image-codec@1.0.0"`,
+		"func RegisterImageCodec(host *witgo.Host, name string, provider ImageCodec, options ...witgo.RegisterOption) error",
+		"func ResolveImageCodec(host *witgo.Host, name string) (ImageCodec, error)",
+		"func AutoResolveImageCodec(host *witgo.Host) (ImageCodec, error)",
+		"var _ ImageCodec = (*ImageCodecProviderClient)(nil)",
+		"var _ ImageCodec = (*codecPluginImageCodecClient)(nil)",
+		"type ProcessorPluginBindings = ProcessorPluginImports",
+		"func AutoBindProcessorPlugin(host *witgo.Host) (ProcessorPluginBindings, error)",
+		"func OpenProcessorPluginWithHost(host *witgo.Host",
+		"func (c *ImageCodecProviderClient) witgoCompositionPlug() (witgo.CompositionPlug, bool)",
+		"options = append(options, witgo.ComponentProvider(composition))",
+		"_witgoOptions.CompositionPlugs = append(_witgoOptions.CompositionPlugs, _witgoPlug)",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("generated source does not contain %q", want)
+		}
+	}
+	if count := strings.Count(text, "type ImageCodec interface {"); count != 1 {
+		t.Fatalf("ImageCodec interface generated %d times", count)
+	}
+	parseGenerated(t, filepath.Join(output, DefaultFilename), source)
 }
 
 func TestGenerateComponentHandles(t *testing.T) {
@@ -276,7 +337,7 @@ world plugin { export api; }
 		"type Completion = witgo.Handle",
 		"type Chunks = witgo.Handle",
 		"type Failure = witgo.Handle",
-		"Open() (File, error)",
+		"Open(ctx context.Context) (File, error)",
 		`"test:handles/api@1.0.0#wait": "(future<string>)->(error-context)"`,
 		`"test:handles/api@1.0.0#consume": "(stream<list<u8>>)->()"`,
 	} {

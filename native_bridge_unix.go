@@ -1,8 +1,10 @@
-//go:build linux || darwin
+//go:build (linux || darwin) && !tinygo
 
 package witgo
 
 import "github.com/ebitengine/purego"
+
+const nativeBridgeBackend = NativeBridgeBackendPureGo
 
 func loadNativeLibrary(path string) (*nativeLibrary, error) {
 	handle, err := purego.Dlopen(path, purego.RTLD_NOW|purego.RTLD_LOCAL)

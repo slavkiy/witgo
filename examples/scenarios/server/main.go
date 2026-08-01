@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"path/filepath"
@@ -11,8 +12,8 @@ import (
 
 type host struct{}
 
-func (host) ProcessString(value string) string {
-	return "HOST:" + value
+func (host) ProcessString(_ context.Context, value string) (string, error) {
+	return "HOST:" + value, nil
 }
 
 func main() {
@@ -22,12 +23,13 @@ func main() {
 	}
 	wasmFile := filepath.Join(filepath.Dir(sourceFile), "..", "..", "components", "basic", "component.wasm")
 
-	plugin, err := contract.OpenPlugin(wasmFile, contract.PluginImports{Host: host{}})
+	ctx := context.Background()
+	plugin, err := contract.OpenPluginContext(ctx, wasmFile, contract.PluginImports{Host: host{}})
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer plugin.Close()
-	metadata, err := plugin.PluginInfo.Metadata()
+	metadata, err := plugin.PluginInfo.Metadata(ctx)
 	if err != nil {
 		log.Fatal(err)
 	}

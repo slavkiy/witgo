@@ -17,10 +17,11 @@ import (
 const DefaultFilename = "bindings.gen.go"
 
 type Config struct {
-	WIT      string
-	Output   string
-	Package  string
-	Filename string
+	WIT              string
+	Output           string
+	Package          string
+	Filename         string
+	EnableRuntimeAPI bool
 }
 
 type Generator struct {
@@ -70,7 +71,7 @@ func (g *Generator) Generate() error {
 		return fmt.Errorf("go package name is required when WIT package is not declared")
 	}
 
-	source, err := Render(model, packageName)
+	source, err := RenderWithOptions(model, packageName, RenderOptions{EnableRuntimeAPI: g.config.EnableRuntimeAPI})
 	if err != nil {
 		return fmt.Errorf("render Go bindings: %w", err)
 	}

@@ -3,6 +3,7 @@
 package contract
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"github.com/slavkiy/witgo"
@@ -39,21 +40,262 @@ type PluginMetadata struct {
 }
 
 type PluginInfo interface {
-	Metadata() (PluginMetadata, error)
+	Metadata(ctx context.Context) (PluginMetadata, error)
+}
+
+var PluginInfoDescriptor = witgo.InterfaceDescriptor{
+	ID: "examples:contract/plugin-info@1.0.0",
+	Functions: map[string]string{
+		"metadata": "()->(record{name:string,version:string,author:string,description:string})",
+	},
+}
+
+type PluginInfoProviderClient struct{ handle *witgo.ProviderHandle }
+
+var _ PluginInfo = (*PluginInfoProviderClient)(nil)
+
+func (c *PluginInfoProviderClient) witgoCompositionPlug() (witgo.CompositionPlug, bool) {
+	if c == nil || c.handle == nil {
+		return witgo.CompositionPlug{}, false
+	}
+	return c.handle.CompositionPlug()
+}
+
+func (c *PluginInfoProviderClient) witgoComponentComposition() witgo.ComponentComposition {
+	plug, ok := c.witgoCompositionPlug()
+	if !ok {
+		return witgo.ComponentComposition{}
+	}
+	return witgo.ComponentComposition{Component: plug.Component, Dependencies: plug.Dependencies}
+}
+
+func RegisterPluginInfo(host *witgo.Host, name string, provider PluginInfo, options ...witgo.RegisterOption) error {
+	if host == nil {
+		return fmt.Errorf("host is nil")
+	}
+	if provider == nil {
+		return fmt.Errorf("provider is nil")
+	}
+	if source, ok := provider.(interface {
+		witgoComponentComposition() witgo.ComponentComposition
+	}); ok {
+		composition := source.witgoComponentComposition()
+		if composition.Component == "" && witgo.DescriptorUsesRuntimeHandles(PluginInfoDescriptor) {
+			return witgo.ErrCrossRuntimeHandle
+		}
+		if composition.Component != "" {
+			options = append(options, witgo.ComponentProvider(composition))
+		}
+	}
+	if health, ok := provider.(interface{ witgoProviderHealth() error }); ok {
+		if err := health.witgoProviderHealth(); err != nil {
+			return err
+		}
+	}
+	_, err := host.RegisterProvider(name, PluginInfoDescriptor, func(ctx context.Context, function string, args []any) (any, error) {
+		if health, ok := provider.(interface{ witgoProviderHealth() error }); ok {
+			if err := health.witgoProviderHealth(); err != nil {
+				return nil, err
+			}
+		}
+		switch function {
+		case "metadata":
+			if len(args) != 0 {
+				return nil, fmt.Errorf("provider examples:contract/plugin-info@1.0.0#metadata received %d arguments", len(args))
+			}
+			return provider.Metadata(ctx)
+		default:
+			return nil, fmt.Errorf("unknown provider function examples:contract/plugin-info@1.0.0#%s", function)
+		}
+	}, options...)
+	return err
+}
+
+func ResolvePluginInfo(host *witgo.Host, name string) (PluginInfo, error) {
+	if host == nil {
+		return nil, fmt.Errorf("host is nil")
+	}
+	handle, err := host.ResolveProvider(name, PluginInfoDescriptor)
+	if err != nil {
+		return nil, err
+	}
+	return &PluginInfoProviderClient{handle: handle}, nil
+}
+
+func AutoResolvePluginInfo(host *witgo.Host) (PluginInfo, error) {
+	if host == nil {
+		return nil, fmt.Errorf("host is nil")
+	}
+	handle, err := host.AutoResolveProvider(PluginInfoDescriptor)
+	if err != nil {
+		return nil, err
+	}
+	return &PluginInfoProviderClient{handle: handle}, nil
+}
+
+func MustResolvePluginInfo(host *witgo.Host, name string) PluginInfo {
+	provider, err := ResolvePluginInfo(host, name)
+	if err != nil {
+		panic(err)
+	}
+	return provider
+}
+
+func (c *PluginInfoProviderClient) Metadata(ctx context.Context) (PluginMetadata, error) {
+	_witgoValue, _witgoErr := c.handle.CallContext(ctx, "", "metadata")
+	if _witgoErr != nil {
+		return *new(PluginMetadata), _witgoErr
+	}
+	_witgoResult, _witgoErr := liftValue[PluginMetadata](_witgoValue)
+	if _witgoErr != nil {
+		return *new(PluginMetadata), _witgoErr
+	}
+	return _witgoResult, nil
 }
 
 type Host interface {
-	ProcessString(value string) string
+	ProcessString(ctx context.Context, value string) (string, error)
+}
+
+var HostDescriptor = witgo.InterfaceDescriptor{
+	ID: "examples:contract/host@1.0.0",
+	Functions: map[string]string{
+		"process-string": "(string)->(string)",
+	},
+}
+
+type HostProviderClient struct{ handle *witgo.ProviderHandle }
+
+var _ Host = (*HostProviderClient)(nil)
+
+func (c *HostProviderClient) witgoCompositionPlug() (witgo.CompositionPlug, bool) {
+	if c == nil || c.handle == nil {
+		return witgo.CompositionPlug{}, false
+	}
+	return c.handle.CompositionPlug()
+}
+
+func (c *HostProviderClient) witgoComponentComposition() witgo.ComponentComposition {
+	plug, ok := c.witgoCompositionPlug()
+	if !ok {
+		return witgo.ComponentComposition{}
+	}
+	return witgo.ComponentComposition{Component: plug.Component, Dependencies: plug.Dependencies}
+}
+
+func RegisterHost(host *witgo.Host, name string, provider Host, options ...witgo.RegisterOption) error {
+	if host == nil {
+		return fmt.Errorf("host is nil")
+	}
+	if provider == nil {
+		return fmt.Errorf("provider is nil")
+	}
+	if source, ok := provider.(interface {
+		witgoComponentComposition() witgo.ComponentComposition
+	}); ok {
+		composition := source.witgoComponentComposition()
+		if composition.Component == "" && witgo.DescriptorUsesRuntimeHandles(HostDescriptor) {
+			return witgo.ErrCrossRuntimeHandle
+		}
+		if composition.Component != "" {
+			options = append(options, witgo.ComponentProvider(composition))
+		}
+	}
+	if health, ok := provider.(interface{ witgoProviderHealth() error }); ok {
+		if err := health.witgoProviderHealth(); err != nil {
+			return err
+		}
+	}
+	_, err := host.RegisterProvider(name, HostDescriptor, func(ctx context.Context, function string, args []any) (any, error) {
+		if health, ok := provider.(interface{ witgoProviderHealth() error }); ok {
+			if err := health.witgoProviderHealth(); err != nil {
+				return nil, err
+			}
+		}
+		switch function {
+		case "process-string":
+			if len(args) != 1 {
+				return nil, fmt.Errorf("provider examples:contract/host@1.0.0#process-string received %d arguments", len(args))
+			}
+			_witgoArg0, err := liftValue[string](args[0])
+			if err != nil {
+				return nil, err
+			}
+			return provider.ProcessString(ctx, _witgoArg0)
+		default:
+			return nil, fmt.Errorf("unknown provider function examples:contract/host@1.0.0#%s", function)
+		}
+	}, options...)
+	return err
+}
+
+func ResolveHost(host *witgo.Host, name string) (Host, error) {
+	if host == nil {
+		return nil, fmt.Errorf("host is nil")
+	}
+	handle, err := host.ResolveProvider(name, HostDescriptor)
+	if err != nil {
+		return nil, err
+	}
+	return &HostProviderClient{handle: handle}, nil
+}
+
+func AutoResolveHost(host *witgo.Host) (Host, error) {
+	if host == nil {
+		return nil, fmt.Errorf("host is nil")
+	}
+	handle, err := host.AutoResolveProvider(HostDescriptor)
+	if err != nil {
+		return nil, err
+	}
+	return &HostProviderClient{handle: handle}, nil
+}
+
+func MustResolveHost(host *witgo.Host, name string) Host {
+	provider, err := ResolveHost(host, name)
+	if err != nil {
+		panic(err)
+	}
+	return provider
+}
+
+func (c *HostProviderClient) ProcessString(ctx context.Context, value string) (string, error) {
+	_witgoValue, _witgoErr := c.handle.CallContext(ctx, "", "process-string", value)
+	if _witgoErr != nil {
+		return *new(string), _witgoErr
+	}
+	_witgoResult, _witgoErr := liftValue[string](_witgoValue)
+	if _witgoErr != nil {
+		return *new(string), _witgoErr
+	}
+	return _witgoResult, nil
 }
 
 type runtimeCaller interface {
-	Call(name string, args ...any) (any, error)
+	CallContext(ctx context.Context, name string, args ...any) (any, error)
 	Close() error
 }
 
 // PluginImports contains all host capabilities required by Plugin.
 type PluginImports struct {
 	Host Host
+}
+
+// PluginBindings is the typed dependency set used for Go and plugin providers.
+type PluginBindings = PluginImports
+
+// AutoBindPlugin resolves every dependency when exactly one compatible provider is registered.
+func AutoBindPlugin(host *witgo.Host) (PluginBindings, error) {
+	var bindings PluginBindings
+	if host == nil {
+		return bindings, fmt.Errorf("host is nil")
+	}
+	_witgoProvider0, err := AutoResolveHost(host)
+	if err != nil {
+		return bindings, err
+	}
+	bindings.Host = _witgoProvider0
+	return bindings, nil
 }
 
 // PluginPing returns the generated host and plugin function manifest.
@@ -74,17 +316,29 @@ func PluginPing() witgo.Contract {
 
 // ValidatePlugin inspects a component without instantiating it or running guest code.
 func ValidatePlugin(filename string) (witgo.ValidationReport, error) {
-	return witgo.ValidateComponent(filename, PluginPing())
+	return ValidatePluginContext(context.Background(), filename)
+}
+
+func ValidatePluginContext(ctx context.Context, filename string) (witgo.ValidationReport, error) {
+	return witgo.ValidateComponentContext(ctx, filename, PluginPing())
 }
 
 // ValidatePluginWithOptions is ValidatePlugin with explicit bridge options.
 func ValidatePluginWithOptions(filename string, options witgo.RuntimeOptions) (witgo.ValidationReport, error) {
-	return witgo.ValidateComponentWithOptions(filename, options, PluginPing())
+	return ValidatePluginWithOptionsContext(context.Background(), filename, options)
+}
+
+func ValidatePluginWithOptionsContext(ctx context.Context, filename string, options witgo.RuntimeOptions) (witgo.ValidationReport, error) {
+	return witgo.ValidateComponentWithOptionsContext(ctx, filename, options, PluginPing())
 }
 
 // CheckPlugin validates a component and returns ErrContractMismatch when it is incompatible.
 func CheckPlugin(filename string) error {
-	report, err := ValidatePlugin(filename)
+	return CheckPluginContext(context.Background(), filename)
+}
+
+func CheckPluginContext(ctx context.Context, filename string) error {
+	report, err := ValidatePluginContext(ctx, filename)
 	if err != nil {
 		return err
 	}
@@ -93,7 +347,11 @@ func CheckPlugin(filename string) error {
 
 // CheckPluginWithOptions is CheckPlugin with explicit bridge options.
 func CheckPluginWithOptions(filename string, options witgo.RuntimeOptions) error {
-	report, err := ValidatePluginWithOptions(filename, options)
+	return CheckPluginWithOptionsContext(context.Background(), filename, options)
+}
+
+func CheckPluginWithOptionsContext(ctx context.Context, filename string, options witgo.RuntimeOptions) error {
+	report, err := ValidatePluginWithOptionsContext(ctx, filename, options)
 	if err != nil {
 		return err
 	}
@@ -102,8 +360,17 @@ func CheckPluginWithOptions(filename string, options witgo.RuntimeOptions) error
 
 // Plugin is a client for the plugin WIT world.
 type Plugin struct {
-	runtime    runtimeCaller
-	PluginInfo PluginInfo
+	runtime          runtimeCaller
+	reopen           func(context.Context) (runtimeCaller, error)
+	pluginInfoClient *pluginPluginInfoClient
+	PluginInfo       PluginInfo
+}
+
+func (c *Plugin) setRuntime(runtime runtimeCaller) {
+	c.runtime = runtime
+	if c.pluginInfoClient != nil {
+		c.pluginInfoClient.runtime = runtime
+	}
 }
 
 func (c *Plugin) Close() error {
@@ -113,59 +380,186 @@ func (c *Plugin) Close() error {
 	return c.runtime.Close()
 }
 
+func (c *Plugin) Restart() error {
+	return c.RestartContext(context.Background())
+}
+
+func (c *Plugin) RestartContext(ctx context.Context) error {
+	if c == nil {
+		return fmt.Errorf("plugin is nil")
+	}
+	if c.reopen == nil {
+		return fmt.Errorf("plugin cannot be restarted")
+	}
+	if ctx == nil {
+		return fmt.Errorf("context is nil")
+	}
+	_witgoNewRuntime, err := c.reopen(ctx)
+	if err != nil {
+		return err
+	}
+	_witgoOldRuntime := c.runtime
+	c.setRuntime(_witgoNewRuntime)
+	if _witgoOldRuntime == nil {
+		return nil
+	}
+	if err := _witgoOldRuntime.Close(); err != nil {
+		return fmt.Errorf("close previous plugin runtime: %w", err)
+	}
+	return nil
+}
+
+// OpenPluginWithHost opens a component attached to a shared composition host.
+func OpenPluginWithHost(host *witgo.Host, filename string, bindings ...PluginBindings) (*Plugin, error) {
+	return OpenPluginWithHostContext(context.Background(), host, filename, bindings...)
+}
+
+func OpenPluginWithHostContext(ctx context.Context, host *witgo.Host, filename string, bindings ...PluginBindings) (*Plugin, error) {
+	return OpenPluginWithHostOptionsContext(ctx, host, filename, witgo.RuntimeOptions{}, bindings...)
+}
+
+func OpenPluginAutoBoundWithHost(host *witgo.Host, filename string) (*Plugin, error) {
+	return OpenPluginAutoBoundWithHostContext(context.Background(), host, filename)
+}
+
+func OpenPluginAutoBoundWithHostContext(ctx context.Context, host *witgo.Host, filename string) (*Plugin, error) {
+	bindings, err := AutoBindPlugin(host)
+	if err != nil {
+		return nil, err
+	}
+	return OpenPluginWithHostContext(ctx, host, filename, bindings)
+}
+
+func OpenPluginWithHostOptionsContext(ctx context.Context, host *witgo.Host, filename string, options witgo.RuntimeOptions, bindings ...PluginBindings) (*Plugin, error) {
+	if host == nil {
+		return nil, fmt.Errorf("host is nil")
+	}
+	options.CompositionHost = host
+	return OpenPluginWithOptionsContext(ctx, filename, options, bindings...)
+}
+
 type pluginPluginInfoClient struct {
 	runtime runtimeCaller
 }
 
+func (c *pluginPluginInfoClient) witgoProviderHealth() error {
+	if c == nil || c.runtime == nil {
+		return witgo.ErrPluginProviderClosed
+	}
+	if state, ok := c.runtime.(interface{ IsClosed() bool }); ok && state.IsClosed() {
+		return witgo.ErrPluginProviderClosed
+	}
+	return nil
+}
+
+func (*pluginPluginInfoClient) witgoPluginRuntimeProvider() {}
+
+func (c *pluginPluginInfoClient) witgoComponentComposition() witgo.ComponentComposition {
+	if c == nil || c.runtime == nil {
+		return witgo.ComponentComposition{}
+	}
+	if source, ok := c.runtime.(interface {
+		Composition() witgo.ComponentComposition
+	}); ok {
+		return source.Composition()
+	}
+	return witgo.ComponentComposition{}
+}
+
+func (c *pluginPluginInfoClient) witgoCompositionPlug() (witgo.CompositionPlug, bool) {
+	composition := c.witgoComponentComposition()
+	if composition.Component == "" {
+		return witgo.CompositionPlug{}, false
+	}
+	return witgo.CompositionPlug{Interface: "examples:contract/plugin-info@1.0.0", Component: composition.Component, Dependencies: composition.Dependencies}, true
+}
+
 // OpenPlugin loads a component using the generated contract.
-func OpenPlugin(filename string, imports PluginImports) (*Plugin, error) {
-	return OpenPluginWithOptions(filename, witgo.RuntimeOptions{}, imports)
+func OpenPlugin(filename string, imports ...PluginImports) (*Plugin, error) {
+	return OpenPluginContext(context.Background(), filename, imports...)
+}
+
+// OpenPluginContext loads a component and propagates cancellation during startup.
+func OpenPluginContext(ctx context.Context, filename string, imports ...PluginImports) (*Plugin, error) {
+	return OpenPluginWithOptionsContext(ctx, filename, witgo.RuntimeOptions{}, imports...)
 }
 
 // OpenPluginWithOptions loads a component with runtime options and verifies its function manifest.
-func OpenPluginWithOptions(filename string, _witgoOptions witgo.RuntimeOptions, imports PluginImports) (*Plugin, error) {
-	if imports.Host == nil {
-		return nil, fmt.Errorf("plugin import host is nil")
+func OpenPluginWithOptions(filename string, _witgoOptions witgo.RuntimeOptions, imports ...PluginImports) (*Plugin, error) {
+	return OpenPluginWithOptionsContext(context.Background(), filename, _witgoOptions, imports...)
+}
+
+// OpenPluginWithOptionsContext loads a component with context and runtime options.
+func OpenPluginWithOptionsContext(ctx context.Context, filename string, _witgoOptions witgo.RuntimeOptions, _witgoImportSets ...PluginImports) (*Plugin, error) {
+	if ctx == nil {
+		return nil, fmt.Errorf("context is nil")
 	}
-	_witgoImports := []witgo.HostImport{
-		{
-			Interface: "examples:contract/host@1.0.0", Function: "process-string",
-			Call: func(_witgoArgs []any) (any, error) {
-				if len(_witgoArgs) != 1 {
-					return nil, fmt.Errorf("host import examples:contract/host@1.0.0#process-string received %d arguments", len(_witgoArgs))
-				}
-				_witgoArg0, err := liftValue[string](_witgoArgs[0])
-				if err != nil {
-					return nil, err
-				}
-				return imports.Host.ProcessString(_witgoArg0), nil
-			},
-		},
+	if len(_witgoImportSets) > 1 {
+		return nil, fmt.Errorf("at most one imports value is allowed")
 	}
-	runtime, err := witgo.LoadRuntimeWithContract(filename, _witgoOptions, _witgoImports, PluginPing())
+	var imports PluginImports
+	if len(_witgoImportSets) == 1 {
+		imports = _witgoImportSets[0]
+	}
+	_ = imports
+	var _witgoImports []witgo.HostImport
+	if imports.Host != nil {
+		if _witgoSource, ok := imports.Host.(interface {
+			witgoCompositionPlug() (witgo.CompositionPlug, bool)
+		}); ok {
+			_witgoPlug, available := _witgoSource.witgoCompositionPlug()
+			if !available {
+				return nil, witgo.ErrPluginProviderClosed
+			}
+			if _witgoPlug.Interface != "examples:contract/host@1.0.0" {
+				return nil, fmt.Errorf("%w: expected interface %q, provider exposes %q", witgo.ErrPluginDependencyMismatch, "examples:contract/host@1.0.0", _witgoPlug.Interface)
+			}
+			_witgoOptions.CompositionPlugs = append(_witgoOptions.CompositionPlugs, _witgoPlug)
+		} else {
+			_witgoImports = append(_witgoImports, witgo.HostImport{
+				Interface: "examples:contract/host@1.0.0", Function: "process-string",
+				CallContext: func(ctx context.Context, _witgoArgs []any) (any, error) {
+					if len(_witgoArgs) != 1 {
+						return nil, fmt.Errorf("host import examples:contract/host@1.0.0#process-string received %d arguments", len(_witgoArgs))
+					}
+					_witgoArg0, err := liftValue[string](_witgoArgs[0])
+					if err != nil {
+						return nil, err
+					}
+					return imports.Host.ProcessString(ctx, _witgoArg0)
+				},
+			})
+		}
+	}
+	_witgoOpenRuntime := func(ctx context.Context) (runtimeCaller, error) {
+		return witgo.LoadRuntimeWithContractContext(ctx, filename, _witgoOptions, _witgoImports, PluginPing())
+	}
+	runtime, err := _witgoOpenRuntime(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return newPlugin(runtime)
+	return newPlugin(runtime, _witgoOpenRuntime)
 }
 
-func newPlugin(runtime runtimeCaller) (*Plugin, error) {
+func newPlugin(runtime runtimeCaller, reopen func(context.Context) (runtimeCaller, error)) (*Plugin, error) {
 	if runtime == nil {
 		return nil, fmt.Errorf("runtime is nil")
 	}
-	return &Plugin{runtime: runtime, PluginInfo: &pluginPluginInfoClient{runtime: runtime}}, nil
+	client := &Plugin{runtime: runtime, reopen: reopen, pluginInfoClient: &pluginPluginInfoClient{runtime: runtime}}
+	client.PluginInfo = client.pluginInfoClient
+	return client, nil
 }
 
 var _ PluginInfo = (*pluginPluginInfoClient)(nil)
 
-func (c *pluginPluginInfoClient) Metadata() (PluginMetadata, error) {
-	value, err := c.runtime.Call("examples:contract/plugin-info@1.0.0#metadata")
-	if err != nil {
-		return *new(PluginMetadata), err
+func (c *pluginPluginInfoClient) Metadata(ctx context.Context) (PluginMetadata, error) {
+	_witgoValue, _witgoErr := c.runtime.CallContext(ctx, "examples:contract/plugin-info@1.0.0#metadata")
+	if _witgoErr != nil {
+		return *new(PluginMetadata), _witgoErr
 	}
-	result, err := liftValue[PluginMetadata](value)
-	if err != nil {
-		return *new(PluginMetadata), fmt.Errorf("call examples:contract/plugin-info@1.0.0#metadata: %w", err)
+	_witgoResult, _witgoErr := liftValue[PluginMetadata](_witgoValue)
+	if _witgoErr != nil {
+		return *new(PluginMetadata), fmt.Errorf("call examples:contract/plugin-info@1.0.0#metadata: %w", _witgoErr)
 	}
-	return result, nil
+	return _witgoResult, nil
 }

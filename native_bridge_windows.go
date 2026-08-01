@@ -1,4 +1,4 @@
-//go:build windows
+//go:build windows && !tinygo
 
 package witgo
 
@@ -6,6 +6,8 @@ import (
 	"github.com/ebitengine/purego"
 	"syscall"
 )
+
+const nativeBridgeBackend = NativeBridgeBackendPureGo
 
 func loadNativeLibrary(path string) (*nativeLibrary, error) {
 	dll, err := syscall.LoadDLL(path)

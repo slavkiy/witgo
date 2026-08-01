@@ -39,9 +39,10 @@ func (g *Generator) Generate() error {
 
 func generatorConfig(config Config) generator.Config {
 	return generator.Config{
-		WIT:      config.WIT,
-		Output:   config.Output,
-		Package:  config.Package,
-		Filename: config.Filename,
+		WIT:              config.WIT,
+		Output:           config.Output,
+		Package:          config.Package,
+		Filename:         config.Filename,
+		EnableRuntimeAPI: config.EnableRuntimeAPI,
 	}
 }

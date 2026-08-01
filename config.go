@@ -9,4 +9,7 @@ type Config struct {
 	Package string
 	// Filename defaults to bindings.gen.go.
 	Filename string
+	// EnableRuntimeAPI emits the opt-in witgo:runtime@1.0.0 guest facade and
+	// enables its host binding in generated Open functions.
+	EnableRuntimeAPI bool
 }

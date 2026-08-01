@@ -16,6 +16,8 @@
   типизированных host-сценариев;
 - [scenarios/server](scenarios/server/main.go): открытие plugin через generated
   client;
+- [scenarios/nested](scenarios/nested/main.go): автоматическая вложенность без
+  ручной реализации host interface;
 - [scenarios/validate](scenarios/validate/main.go): validation и короткий
   startup-check;
 - [scenarios/inspect](scenarios/inspect/main.go): inspection imports/exports и
@@ -36,6 +38,7 @@
 ```sh
 go run ./examples/contracts/basic
 go run ./examples/scenarios/server
+go run ./examples/scenarios/nested
 go run ./examples/scenarios/validate
 go run ./examples/scenarios/inspect
 go run ./examples/scenarios/collections

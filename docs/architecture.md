@@ -1,5 +1,23 @@
 # Архитектура runtime
 
+## Composition router
+
+`Host` хранит registry интерфейсных providers, но берёт read lock только для
+получения стабильного `ProviderHandle`. Для Go provider generated adapter
+поднимает WIT values и вызывает callback без удержания registry lock.
+
+Для WebAssembly provider `ProviderHandle` хранит рецепт `ComponentComposition`.
+Generated consumer передаёт точные рёбра в bridge, `wac-graph` связывает imports
+и exports, а Wasmtime создаёт весь граф одним Component и одним Store. Один и
+тот же provider с одинаковым графом переиспользует одну instance, даже если он
+обслуживает несколько интерфейсов. Поэтому resource identity и ownership не
+подменяются числовыми токенами между Runtime.
+
+Ключ ребра - полный WIT ID. Дубликаты одного ID, несовместимые типы и циклы
+отклоняются до instantiation. Разные короткие имена не участвуют в разрешении.
+Каждая top-level загрузка создаёт независимую коробку и собственные instances.
+Подробности и примеры приведены в [документе о композиции](plugin-composition.md).
+
 `witgo` запускает WebAssembly Components in-process через встроенную Wasmtime
 shared library. Нет отдельного процесса, нет stdin/stdout IPC, нет сетевой
 загрузки runtime и нет обязательной внешней установки.
@@ -23,8 +41,9 @@ hit.
 
 ## Внутрипроцессный протокол
 
-Go вызывает небольшой стабильный C ABI через `purego`, без CGO. Внутри Rust
-остаётся существующий JSON value protocol поверх in-memory каналов.
+Go вызывает небольшой стабильный C ABI через `purego` без CGO. При сборке
+TinyGo тот же ABI вызывается через CGo и системный dynamic loader. Внутри Rust
+остаётся JSON value protocol поверх in-memory каналов.
 
 Инициализация выполняет строгий handshake, который включает:
 

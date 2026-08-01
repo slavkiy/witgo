@@ -8,6 +8,9 @@
 - [Проверка контрактов](validation.md)
 - [Сгенерированный Go-код](generated-code.md)
 - [Публичный API](public-api.md)
+- [Совместимость с TinyGo и контекстный API](tinygo.md)
+- [Автоматические вложенные плагины](nested-plugins.md)
+- [Прозрачная композиция плагинов](plugin-composition.md)
 
 ## Эксплуатация
 

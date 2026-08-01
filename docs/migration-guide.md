@@ -1,4 +1,41 @@
-# Migration Guide
+# Руководство по миграции
+
+## Переход на единые interfaces композиции
+
+Generated методы WIT interfaces теперь всегда возвращают transport/runtime
+`error`, независимо от того, используется interface как import или export.
+Старая Go-реализация:
+
+```go
+func (codec) Decode(ctx context.Context, data []byte) Result { return result }
+```
+
+должна стать:
+
+```go
+func (codec) Decode(ctx context.Context, data []byte) (Result, error) {
+	return result, nil
+}
+```
+
+Это позволяет одному интерфейсу представлять Go object, plugin export client,
+mock и зарегистрированный provider без несовместимых адаптеров.
+
+## Переход на контекстный generated API
+
+Generated export- и host-методы теперь принимают `context.Context` первым аргументом. После повторной генерации замените вызовы и реализации:
+
+```go
+// Раньше
+info, err := plugin.Metadata.Get()
+func (host) ProcessString(value string) string
+
+// Теперь
+info, err := plugin.Metadata.Get(ctx)
+func (host) ProcessString(ctx context.Context, value string) (string, error)
+```
+
+Для загрузки, проверки контракта и полного перезапуска доступны `OpenPluginContext`, `ValidatePluginContext`, `CheckPluginContext` и `RestartContext`. Старые функции загрузки и проверки сохранены и используют `context.Background()`.
 
 Этот документ описывает переход на актуальную релизную линию `witgo v0.2.x`.
 

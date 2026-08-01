@@ -2,6 +2,10 @@
 
 # witgo
 
+Любой сгенерированный WIT-интерфейс может быть реализован Go-кодом или другим
+зарегистрированным WebAssembly Component. Плагин-потребитель использует тот же
+import и не знает, какой provider находится за ним.
+
 `witgo` генерирует типизированный Go API из WIT-контракта и позволяет Go-host
 загружать WebAssembly Component-плагины, вызывать их exports и предоставлять им
 host-функции.
@@ -101,8 +105,8 @@ go run generate.go
 ```go
 type pluginHost struct{}
 
-func (pluginHost) ProcessString(value string) string {
-	return "HOST:" + value
+func (pluginHost) ProcessString(_ context.Context, value string) (string, error) {
+	return "HOST:" + value, nil
 }
 ```
 
@@ -115,6 +119,7 @@ Go-компилятор сам проверит, что реализация с�
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 
@@ -122,7 +127,8 @@ import (
 )
 
 func main() {
-	report, err := contract.ValidatePlugin("./plugins/plugin.component.wasm")
+	ctx := context.Background()
+	report, err := contract.ValidatePluginContext(ctx, "./plugins/plugin.component.wasm")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -130,7 +136,7 @@ func main() {
 		log.Fatalf("incompatible plugin: %+v", report)
 	}
 
-	plugin, err := contract.OpenPlugin("./plugins/plugin.component.wasm", contract.PluginImports{
+	plugin, err := contract.OpenPluginContext(ctx, "./plugins/plugin.component.wasm", contract.PluginImports{
 		Host: pluginHost{},
 	})
 	if err != nil {
@@ -138,7 +144,7 @@ func main() {
 	}
 	defer plugin.Close()
 
-	info, err := plugin.Metadata.Get()
+	info, err := plugin.Metadata.Get(ctx)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -152,13 +158,14 @@ func main() {
 Вызовы export-функций остаются типизированными:
 
 ```go
-info, err := plugin.Metadata.Get()
+info, err := plugin.Metadata.Get(ctx)
 ```
 
 ### 5. Ограничьте выполнение плагина
 
 ```go
-plugin, err := contract.OpenPluginWithOptions(
+plugin, err := contract.OpenPluginWithOptionsContext(
+	ctx,
 	"./plugins/plugin.component.wasm",
 	witgo.RuntimeOptions{
 		FuelPerCall:      1_000_000,
@@ -192,18 +199,21 @@ if err := contract.CheckPlugin("./plugins/plugin.component.wasm"); err != nil {
 - `witgo.Handle` для `resource`, `future`, `stream` и `error-context`;
 - end-to-end тесты для maps, variants, resources и сложных списков;
 - CI-матрица для Linux, macOS и Windows на `amd64` и `arm64`;
-- встроенный native bridge без отдельного sidecar-процесса и без CGO.
+- встроенный native bridge без отдельного sidecar-процесса; обычный Go работает без CGO, TinyGo использует CGo-loader.
+- автоматическое связывание вложенных плагинов по WIT imports/exports без ручных adapters;
 
 ## Ограничения на сегодня
 
 - `resource`, `future`, `stream` и `error-context` поддерживаются как живые
-  runtime-bound handle, но не как полностью типизированный high-level API;
+  runtime-bound handle, включая автоматическую same-Store передачу между
+  вложенными WebAssembly-плагинами, но не как полностью типизированный
+  high-level API;
 - для `future<T>` и `stream<T>` ещё нет generated Go API для чтения/записи typed
   payload;
 - tuple с arity больше 16 переходят в динамический `witgo.Tuple`;
 - `map<K,V>` поддерживается, но ключ обязан быть `comparable` в Go;
-- capability policy, observability hooks, instance pool и hot reload пока не
-  входят в публичную библиотеку.
+- observability hooks, instance pool и hot reload пока не входят в публичную
+  библиотеку.
 
 Полная матрица возможностей и ограничений собрана в
 [docs/capabilities.md](docs/capabilities.md).
@@ -214,8 +224,9 @@ Runtime покрывает `bool`, все WIT-числа, `char`, `string`, reco
 options, results, tuples, maps, enums, flags и variants.
 
 `resource`, `future`, `stream` и `error-context` передаются как `witgo.Handle`.
-Такой handle привязан к конкретному `Runtime`, его можно вернуть обратно в
-Component и явно закрыть через `Handle.Close`.
+Такой handle привязан к Store runtime-коробки, его можно вернуть обратно в
+Component, передать вложенному WebAssembly provider в той же коробке и явно
+закрыть через `Handle.Close`. Между независимыми коробками handle не копируется.
 
 ## Пример
 
@@ -262,6 +273,9 @@ feature-флагами. До запуска `start` bridge отвечает на
 - [Проверка контрактов](docs/validation.md)
 - [Generated code](docs/generated-code.md)
 - [Публичный API](docs/public-api.md)
+- [TinyGo и контекстный API](docs/tinygo.md)
+- [Автоматические вложенные плагины](docs/nested-plugins.md)
+- [Прозрачная композиция плагинов](docs/plugin-composition.md)
 - [Migration guide](docs/migration-guide.md)
 - [Security model](SECURITY.md)
 - [Релизный процесс](docs/releasing.md)

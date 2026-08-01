@@ -1,5 +1,12 @@
 # Сгенерированный Go-код
 
+Для каждого WIT interface создаются единый Go interface, `InterfaceDescriptor`,
+typed provider client, `Register…`, `Resolve…`, `AutoResolve…` и `MustResolve…`.
+Один interface используется для Go implementation, component export и import
+bindings. Для world дополнительно генерируются `…Bindings`, `AutoBind…` и
+`Open…WithHost`; подробный сценарий находится в
+[plugin-composition.md](plugin-composition.md).
+
 WIT `world` превращается в Go client с типизированными imports и exports.
 
 ```wit
@@ -22,11 +29,11 @@ world plugin {
 
 ```go
 type Host interface {
-	ProcessString(value string) string
+	ProcessString(ctx context.Context, value string) (string, error)
 }
 
 type Metadata interface {
-	Get() (Info, error)
+	Get(ctx context.Context) (Info, error)
 }
 
 type Plugin struct {
@@ -39,13 +46,23 @@ type PluginImports struct {
 
 func PluginPing() witgo.Contract
 func ValidatePlugin(filename string) (witgo.ValidationReport, error)
+func ValidatePluginContext(ctx context.Context, filename string) (witgo.ValidationReport, error)
 func ValidatePluginWithOptions(filename string, options witgo.RuntimeOptions) (witgo.ValidationReport, error)
+func ValidatePluginWithOptionsContext(ctx context.Context, filename string, options witgo.RuntimeOptions) (witgo.ValidationReport, error)
 func CheckPlugin(filename string) error
+func CheckPluginContext(ctx context.Context, filename string) error
 func CheckPluginWithOptions(filename string, options witgo.RuntimeOptions) error
+func CheckPluginWithOptionsContext(ctx context.Context, filename string, options witgo.RuntimeOptions) error
 func OpenPlugin(filename string, imports PluginImports) (*Plugin, error)
+func OpenPluginContext(ctx context.Context, filename string, imports ...PluginImports) (*Plugin, error)
 func OpenPluginWithOptions(filename string, options witgo.RuntimeOptions, imports PluginImports) (*Plugin, error)
+func OpenPluginWithOptionsContext(ctx context.Context, filename string, options witgo.RuntimeOptions, imports PluginImports) (*Plugin, error)
 func (p *Plugin) Close() error
+func (p *Plugin) Restart() error
+func (p *Plugin) RestartContext(ctx context.Context) error
 ```
+
+Поля `PluginImports` могут быть `nil`. В этом случае runtime автоматически ищет вложенный component, экспортирующий требуемый WIT interface. Переданная вручную реализация всегда имеет приоритет.
 
 `PluginPing` генерируется из WIT `world` и содержит отсортированный manifest
 host import и plugin export функций. При открытии плагина bridge сначала
@@ -103,14 +120,16 @@ if err := contract.CheckPlugin("./plugin.wasm"); err != nil {
 
 `resource`, `future<T>`, `stream<T>` и `error-context` представлены через
 `witgo.Handle`. Возвращённый handle остаётся привязан к породившему его
-`Runtime`, может быть передан обратно в тот же runtime и имеет идемпотентный
-`Close`. Bridge проверяет корректность ownership. Для `future` и `stream`
+Store, может быть передан обратно в ту же runtime-коробку и имеет идемпотентный
+`Close`. Если generated binding получает WebAssembly provider из `witgo.Host`,
+он автоматически передаёт bridge точный граф same-Store композиции. Bridge и
+Component Model проверяют корректность ownership. Для `future` и `stream`
 высокоуровневое чтение/запись typed payload пока не генерируется.
 
 Экспорт вызывается обычным типизированным методом:
 
 ```go
-info, err := plugin.Metadata.Get()
+info, err := plugin.Metadata.Get(ctx)
 ```
 
 Generated constructor создаёт `witgo.HostImport` adapters до instantiation.

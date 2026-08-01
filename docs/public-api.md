@@ -1,5 +1,46 @@
 # Публичный API
 
+## Роль сборки
+
+Роль выбирается компилятором, ручная настройка не нужна:
+
+```go
+role := witgo.CurrentExecutionRole()
+if witgo.IsHostBuild() {
+	// Нативное приложение: доступны Runtime и PluginHost.
+}
+if witgo.IsPluginBuild() {
+	// GOARCH=wasm: код является Component Model плагином.
+}
+```
+
+`RequireHostBuild` и `RequirePluginBuild` позволяют явно проверить назначение
+entry point. Host-only вызов из WASM возвращает `ErrHostOnlyAPI`, plugin-only
+вызов из нативного приложения - `ErrPluginOnlyAPI`.
+
+## Composition host
+
+```go
+host, err := witgo.NewHost(witgo.HostOptions{
+	MaxCallDepth: 16,
+	RejectCycles: true,
+	CallTimeout:  5 * time.Second,
+})
+```
+
+Core API включает `InterfaceDescriptor`, `ProviderHandle`, `RegisterProvider`,
+`ResolveProvider`, `AutoResolveProvider`, `UnregisterProvider`, `ReplaceProvider`,
+`PluginCallContext`, `PluginCallError`, `PluginDependencyError` и `CallObserver`.
+Обычному приложению рекомендуется использовать generated typed helpers, а не
+низкоуровневый `ProviderCall`.
+
+Для same-Store композиции доступны `ComponentComposition`, `CompositionPlug`,
+`ComponentProvider` и `Runtime.Composition`. Обычно их вызывает generated API:
+при регистрации export-client граф сохраняется в `ProviderHandle`, а при
+открытии потребителя превращается в `RuntimeOptions.CompositionPlugs`. Ручное
+заполнение требуется только пользователям dynamic API. `CompositionPlug.Interface`
+всегда содержит полный WIT ID, а не короткое имя.
+
 Сводная таблица поддерживаемых WIT-конструкций и runtime-ограничений находится
 в [docs/capabilities.md](capabilities.md).
 
@@ -87,7 +128,8 @@ func CloseHandles(handles ...Handle) error
 
 `HandleKind` принимает одно из значений `HandleResource`, `HandleFuture`,
 `HandleStream` или `HandleErrorContext`. Handle можно отправлять обратно только
-в тот `Runtime`, который его создал. `Close` вызывает `resource_drop`,
+в ту же runtime-коробку, которая его создала. WebAssembly-провайдеры внутри
+коробки связываются в одном Store автоматически. `Close` вызывает `resource_drop`,
 закрывает future/stream или удаляет `error-context` token.
 
 Helper-типы, которые активно используются generated bindings:
@@ -110,11 +152,13 @@ Helper-типы, которые активно используются generate
 
 ```go
 type HostFunc func(args []any) (any, error)
+type HostFuncContext func(ctx context.Context, args []any) (any, error)
 
 type HostImport struct {
 	Interface string
 	Function  string
 	Call      HostFunc
+	CallContext HostFuncContext
 }
 ```
 
@@ -122,7 +166,27 @@ Linker регистрирует только переданный список. 
 или `nil` callback считаются ошибкой. Generated package скрывает этот
 низкоуровневый API за типизированным Go interface.
 
+Rule-based capability filtering:
+
+```go
+type CapabilityPolicy struct {
+	Allow []string
+	Deny  []string
+}
+
+func InspectRequiredCapabilities(filename string) ([]string, error)
+func InspectRequiredCapabilitiesWithOptions(filename string, options RuntimeOptions) ([]string, error)
+func (p CapabilityPolicy) Allows(function string) bool
+func (p CapabilityPolicy) ValidateImports(imports []string) error
+```
+
+`RuntimeOptions.Capabilities` применяет policy к фактическим component imports
+до `start`. Pattern может быть полным именем функции, именем interface без `#`,
+prefix wildcard с `*` или `"*"`.
+
 ## RuntimeOptions
+
+Backend native bridge выбирается во время сборки: стандартный Go использует `purego` без CGO, TinyGo - системный CGo-loader. Оба варианта работают через тот же публичный API и проверяют одинаковый version handshake.
 
 ```go
 type RuntimeOptions struct {
@@ -135,8 +199,29 @@ type RuntimeOptions struct {
 	BridgePath            string
 	BridgeSHA256          string
 	DisableEmbeddedBridge bool
+	Capabilities          CapabilityPolicy
+	NestedPlugins         NestedPluginOptions
+	PluginHost            *PluginHost
+	CompositionHost       *Host
 }
 ```
+
+Для вложенных зависимостей основной механизм - манифест, принадлежащий плагину:
+
+```go
+type PluginManifest struct {
+	Dependencies map[string]string
+}
+
+func EmbedPluginManifest(component []byte, manifest PluginManifest) ([]byte, error)
+func ReadPluginManifest(filename string) (PluginManifest, bool, error)
+```
+
+Пути в манифесте относительны компоненту. `NestedPluginOptions.AllowedRoots`
+задаёт верхнюю границу файловой политики хоста. `SearchPaths` и `Resolver`
+используются только как fallback для старых компонентов без манифеста.
+
+`PluginHost` хранит общую политику автоматического разрешения imports. Каждый top-level load создаёт независимую `PluginBox`; глубина ациклических зависимостей не ограничивается.
 
 `Fuel` задаёт общий budget Store. `FuelPerCall` сбрасывает budget перед каждым
 export call. `Timeout` прерывает Wasm через epoch interrupt, но не останавливает

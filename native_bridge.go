@@ -6,6 +6,18 @@ import (
 	"unsafe"
 )
 
+// NativeBridgeBackend identifies the platform loader selected at build time.
+type NativeBridgeBackend string
+
+const (
+	NativeBridgeBackendPureGo      NativeBridgeBackend = "purego"
+	NativeBridgeBackendCGo         NativeBridgeBackend = "cgo"
+	NativeBridgeBackendUnsupported NativeBridgeBackend = "unsupported"
+)
+
+// CurrentNativeBridgeBackend reports which loader this binary uses.
+func CurrentNativeBridgeBackend() NativeBridgeBackend { return nativeBridgeBackend }
+
 type nativeLibrary struct {
 	closeLibrary func() error
 	newHandle    func() uintptr

@@ -1,6 +1,7 @@
 package witgo
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"sort"
@@ -138,13 +139,24 @@ func (r ValidationReport) Summary() string {
 // InspectComponent returns the imported and exported function names exposed by
 // a WebAssembly component without instantiating it.
 func InspectComponent(filename string) (Contract, error) {
-	return InspectComponentWithOptions(filename, RuntimeOptions{})
+	return InspectComponentContext(context.Background(), filename)
+}
+
+func InspectComponentContext(ctx context.Context, filename string) (Contract, error) {
+	return InspectComponentWithOptionsContext(ctx, filename, RuntimeOptions{})
 }
 
 // InspectComponentWithOptions is InspectComponent with bridge selection and
 // resource options. Execution limits are not consumed because inspection does
 // not instantiate or call the component.
 func InspectComponentWithOptions(filename string, options RuntimeOptions) (Contract, error) {
+	return InspectComponentWithOptionsContext(context.Background(), filename, options)
+}
+
+func InspectComponentWithOptionsContext(ctx context.Context, filename string, options RuntimeOptions) (Contract, error) {
+	if err := contextError(ctx); err != nil {
+		return Contract{}, err
+	}
 	if err := validateRuntimeOptions(options); err != nil {
 		return Contract{}, err
 	}
@@ -152,36 +164,55 @@ func InspectComponentWithOptions(filename string, options RuntimeOptions) (Contr
 	if err != nil {
 		return Contract{}, err
 	}
-	return inspectComponentBridge(path, options)
+	return inspectComponentBridge(ctx, path, options)
 }
 
 // InspectComponentBytes inspects a component held in memory.
 func InspectComponentBytes(data []byte) (Contract, error) {
-	return InspectComponentBytesWithOptions(data, RuntimeOptions{})
+	return InspectComponentBytesContext(context.Background(), data)
+}
+
+func InspectComponentBytesContext(ctx context.Context, data []byte) (Contract, error) {
+	return InspectComponentBytesWithOptionsContext(ctx, data, RuntimeOptions{})
 }
 
 // InspectComponentBytesWithOptions is InspectComponentBytes with explicit
 // bridge options.
 func InspectComponentBytesWithOptions(data []byte, options RuntimeOptions) (Contract, error) {
+	return InspectComponentBytesWithOptionsContext(context.Background(), data, options)
+}
+
+func InspectComponentBytesWithOptionsContext(ctx context.Context, data []byte, options RuntimeOptions) (Contract, error) {
+	if err := contextError(ctx); err != nil {
+		return Contract{}, err
+	}
 	name, err := writeTemporaryComponent(data)
 	if err != nil {
 		return Contract{}, err
 	}
 	defer os.Remove(name)
-	return InspectComponentWithOptions(name, options)
+	return InspectComponentWithOptionsContext(ctx, name, options)
 }
 
 // ValidateComponent compares a component with a generated contract without
 // instantiating it or running guest code. Incompatibility is returned in the
 // report; err is reserved for inspection and bridge failures.
 func ValidateComponent(filename string, expected Contract) (ValidationReport, error) {
-	return ValidateComponentWithOptions(filename, RuntimeOptions{}, expected)
+	return ValidateComponentContext(context.Background(), filename, expected)
+}
+
+func ValidateComponentContext(ctx context.Context, filename string, expected Contract) (ValidationReport, error) {
+	return ValidateComponentWithOptionsContext(ctx, filename, RuntimeOptions{}, expected)
 }
 
 // ValidateComponentWithOptions is ValidateComponent with explicit runtime
 // options controlling bridge selection and inspection limits.
 func ValidateComponentWithOptions(filename string, options RuntimeOptions, expected Contract) (ValidationReport, error) {
-	actual, err := InspectComponentWithOptions(filename, options)
+	return ValidateComponentWithOptionsContext(context.Background(), filename, options, expected)
+}
+
+func ValidateComponentWithOptionsContext(ctx context.Context, filename string, options RuntimeOptions, expected Contract) (ValidationReport, error) {
+	actual, err := InspectComponentWithOptionsContext(ctx, filename, options)
 	if err != nil {
 		return ValidationReport{}, err
 	}
@@ -190,13 +221,21 @@ func ValidateComponentWithOptions(filename string, options RuntimeOptions, expec
 
 // ValidateComponentBytes compares an in-memory component with a contract.
 func ValidateComponentBytes(data []byte, expected Contract) (ValidationReport, error) {
-	return ValidateComponentBytesWithOptions(data, RuntimeOptions{}, expected)
+	return ValidateComponentBytesContext(context.Background(), data, expected)
+}
+
+func ValidateComponentBytesContext(ctx context.Context, data []byte, expected Contract) (ValidationReport, error) {
+	return ValidateComponentBytesWithOptionsContext(ctx, data, RuntimeOptions{}, expected)
 }
 
 // ValidateComponentBytesWithOptions is ValidateComponentBytes with explicit
 // bridge options.
 func ValidateComponentBytesWithOptions(data []byte, options RuntimeOptions, expected Contract) (ValidationReport, error) {
-	actual, err := InspectComponentBytesWithOptions(data, options)
+	return ValidateComponentBytesWithOptionsContext(context.Background(), data, options, expected)
+}
+
+func ValidateComponentBytesWithOptionsContext(ctx context.Context, data []byte, options RuntimeOptions, expected Contract) (ValidationReport, error) {
+	actual, err := InspectComponentBytesWithOptionsContext(ctx, data, options)
 	if err != nil {
 		return ValidationReport{}, err
 	}

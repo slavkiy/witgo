@@ -1,10 +1,12 @@
 package witgo
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"sync"
@@ -61,6 +63,39 @@ const passthroughComponent = `(component
     (export "run" (func $run))
   )
   (export "test:plugin/api@1.0.0" (instance $api))
+)`
+
+const nestedHostComponent = `(component
+  (core module $m
+    (memory (export "memory") 1)
+    (global $heap (mut i32) (i32.const 1024))
+    (func (export "realloc") (param i32 i32 i32 i32) (result i32)
+      (local $result i32)
+      global.get $heap
+      local.tee $result
+      local.get 3
+      i32.add
+      global.set $heap
+      local.get $result)
+    (func (export "process-string") (param i32 i32) (result i32)
+      i32.const 16
+      local.get 0
+      i32.store
+      i32.const 20
+      local.get 1
+      i32.store
+      i32.const 16)
+  )
+  (core instance $i (instantiate $m))
+  (alias core export $i "memory" (core memory $memory))
+  (alias core export $i "realloc" (core func $realloc))
+  (alias core export $i "process-string" (core func $process-string))
+  (type $process-type (func (param "value" string) (result string)))
+  (func $process (type $process-type) (canon lift (core func $process-string)
+    (memory $memory) (realloc $realloc) string-encoding=utf8))
+  (instance $host
+    (export "process-string" (func $process)))
+  (export "test:plugin/host@1.0.0" (instance $host))
 )`
 
 const valueTypesComponent = `(component
@@ -212,6 +247,38 @@ const liveResourceComponent = `(component
   (export "test:handles/api@1.0.0" (instance $api))
 )`
 
+const resourceForwarderComponent = `(component
+  (type $handles (instance
+    (export "item" (type $item (sub resource)))
+    (type $make (func (result (own $item))))
+    (export "make" (func (type $make)))
+    (type $value (func (param "self" (borrow $item)) (result u32)))
+    (export "value" (func (type $value)))
+    (type $consume (func (param "self" (own $item))))
+    (export "consume" (func (type $consume)))
+  ))
+  (import "test:handles/api@1.0.0" (instance $provider (type $handles)))
+  (alias export $provider "item" (type $item))
+  (alias export $provider "make" (func $provider-make))
+  (alias export $provider "value" (func $provider-value))
+  (alias export $provider "consume" (func $provider-consume))
+  (core func $make-core (canon lower (func $provider-make)))
+  (core func $value-core (canon lower (func $provider-value)))
+  (core func $consume-core (canon lower (func $provider-consume)))
+  (type $make (func (result (own $item))))
+  (func $make-lifted (type $make) (canon lift (core func $make-core)))
+  (type $value (func (param "self" (borrow $item)) (result u32)))
+  (func $value-lifted (type $value) (canon lift (core func $value-core)))
+  (type $consume (func (param "self" (own $item))))
+  (func $consume-lifted (type $consume) (canon lift (core func $consume-core)))
+  (instance $forward
+    (export "item" (type $item))
+    (export "make" (func $make-lifted))
+    (export "value" (func $value-lifted))
+    (export "consume" (func $consume-lifted)))
+  (export "test:forward/api@1.0.0" (instance $forward))
+)`
+
 func TestComponentCallsGoHostImport(t *testing.T) {
 	if _, err := bridgebin.Library(); errors.Is(err, bridgebin.ErrUnavailable) && os.Getenv("WITGO_COMPONENT_LIBRARY") == "" {
 		t.Skip("embedded bridge is not present for this platform")
@@ -231,6 +298,122 @@ func TestComponentCallsGoHostImport(t *testing.T) {
 	}
 	if result != "HELLO" {
 		t.Fatalf("result = %#v, want HELLO", result)
+	}
+}
+
+func TestComponentAutomaticallyLoadsNestedPlugin(t *testing.T) {
+	if _, err := bridgebin.Library(); errors.Is(err, bridgebin.ErrUnavailable) && os.Getenv("WITGO_COMPONENT_LIBRARY") == "" {
+		t.Skip("component bridge is not available")
+	}
+	dir := t.TempDir()
+	parent := filepath.Join(dir, "parent.wasm")
+	child := filepath.Join(dir, "child.wasm")
+	if err := os.WriteFile(parent, []byte(passthroughComponent), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(child, []byte(nestedHostComponent), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	runtime, err := LoadRuntime(parent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = runtime.Close() })
+	result, err := runtime.Call("test:plugin/api@1.0.0#run", "nested")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result != "nested" {
+		t.Fatalf("result = %#v, want nested", result)
+	}
+	paths := runtime.NestedPluginPaths()
+	if len(paths) != 1 || paths[0] != child {
+		t.Fatalf("nested paths = %v, want [%s]", paths, child)
+	}
+}
+
+func TestComponentSameStoreComposition(t *testing.T) {
+	if _, err := bridgebin.Library(); errors.Is(err, bridgebin.ErrUnavailable) && os.Getenv("WITGO_COMPONENT_LIBRARY") == "" {
+		t.Skip("component bridge is not available")
+	}
+	dir := t.TempDir()
+	consumerPath := filepath.Join(dir, "consumer.wasm")
+	providerPath := filepath.Join(dir, "provider.wasm")
+	if err := os.WriteFile(consumerPath, []byte(passthroughComponent), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(providerPath, []byte(nestedHostComponent), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	runtime, err := LoadRuntimeWithOptions(consumerPath, RuntimeOptions{
+		NestedPlugins: NestedPluginOptions{Disabled: true},
+		CompositionPlugs: []CompositionPlug{{
+			Interface: "test:plugin/host@1.0.0",
+			Component: providerPath,
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = runtime.Close() })
+	result, err := runtime.Call("test:plugin/api@1.0.0#run", "same-store")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result != "same-store" {
+		t.Fatalf("result = %#v, want same-store", result)
+	}
+}
+
+func TestComponentRoutesImportToRegisteredPlugin(t *testing.T) {
+	if _, err := bridgebin.Library(); errors.Is(err, bridgebin.ErrUnavailable) && os.Getenv("WITGO_COMPONENT_LIBRARY") == "" {
+		t.Skip("component bridge is not available")
+	}
+	dir := t.TempDir()
+	consumerPath := filepath.Join(dir, "consumer.wasm")
+	providerPath := filepath.Join(dir, "provider.wasm")
+	if err := os.WriteFile(consumerPath, []byte(passthroughComponent), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(providerPath, []byte(nestedHostComponent), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	host, err := NewHost(HostOptions{MaxCallDepth: 8, RejectCycles: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = host.Close() })
+	options := RuntimeOptions{NestedPlugins: NestedPluginOptions{Disabled: true}, CompositionHost: host}
+	provider, err := LoadRuntimeWithOptions(providerPath, options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	descriptor := InterfaceDescriptor{ID: "test:plugin/host@1.0.0", Functions: map[string]string{"process-string": "(string)->(string)"}}
+	handle, err := host.RegisterProvider("identity", descriptor, func(ctx context.Context, function string, args []any) (any, error) {
+		return provider.CallContext(ctx, descriptor.ID+"#"+function, args...)
+	}, OwnedProvider(provider.Close))
+	if err != nil {
+		t.Fatal(err)
+	}
+	consumer, err := LoadRuntimeWithImports(consumerPath, options, []HostImport{{
+		Interface: descriptor.ID,
+		Function:  "process-string",
+		CallContext: func(ctx context.Context, args []any) (any, error) {
+			return handle.CallContext(ctx, "consumer", "process-string", args...)
+		},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = consumer.Close() })
+	result, err := consumer.CallContext(context.Background(), "test:plugin/api@1.0.0#run", "transparent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result != "transparent" {
+		t.Fatalf("result = %#v, want transparent", result)
 	}
 }
 
@@ -407,6 +590,41 @@ func TestComponentLiveResourceHandle(t *testing.T) {
 	}
 	if !consumed.IsClosed() {
 		t.Fatal("transferred own resource handle is reported open")
+	}
+}
+
+func TestComponentPassesResourceThroughSameStoreProvider(t *testing.T) {
+	if _, err := bridgebin.Library(); errors.Is(err, bridgebin.ErrUnavailable) && os.Getenv("WITGO_COMPONENT_LIBRARY") == "" {
+		t.Skip("component bridge is not available")
+	}
+	dir := t.TempDir()
+	consumerPath := filepath.Join(dir, "consumer.wasm")
+	providerPath := filepath.Join(dir, "provider.wasm")
+	if err := os.WriteFile(consumerPath, []byte(resourceForwarderComponent), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(providerPath, []byte(liveResourceComponent), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runtime, err := LoadRuntime(consumerPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = runtime.Close() })
+
+	value, err := runtime.Call("test:forward/api@1.0.0#make")
+	if err != nil {
+		t.Fatal(err)
+	}
+	handle, ok := value.(Handle)
+	if !ok || handle.Kind() != HandleResource || !handle.Owned() {
+		t.Fatalf("composed resource result = %#v", value)
+	}
+	if _, err := runtime.Call("test:forward/api@1.0.0#consume", handle); err != nil {
+		t.Fatal(err)
+	}
+	if !handle.IsClosed() {
+		t.Fatal("composed own resource was not consumed")
 	}
 }
 

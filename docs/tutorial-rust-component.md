@@ -161,6 +161,7 @@ module.
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 
@@ -169,12 +170,13 @@ import (
 
 type pluginHost struct{}
 
-func (pluginHost) ProcessString(value string) string {
-	return "HOST:" + value
+func (pluginHost) ProcessString(_ context.Context, value string) (string, error) {
+	return "HOST:" + value, nil
 }
 
 func main() {
-	report, err := contract.ValidatePlugin("./plugin.component.wasm")
+	ctx := context.Background()
+	report, err := contract.ValidatePluginContext(ctx, "./plugin.component.wasm")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -182,7 +184,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	plugin, err := contract.OpenPlugin("./plugin.component.wasm", contract.PluginImports{
+	plugin, err := contract.OpenPluginContext(ctx, "./plugin.component.wasm", contract.PluginImports{
 		Host: pluginHost{},
 	})
 	if err != nil {
@@ -190,7 +192,7 @@ func main() {
 	}
 	defer plugin.Close()
 
-	info, err := plugin.Metadata.Get()
+	info, err := plugin.Metadata.Get(ctx)
 	if err != nil {
 		log.Fatal(err)
 	}

@@ -1,0 +1,5 @@
+{
+  "dependencies": {
+    "examples:contract/host@1.0.0": "dependencies/host.component.wasm"
+  }
+}

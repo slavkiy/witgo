@@ -1,6 +1,7 @@
 package witgo
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -14,17 +15,22 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/slavkiy/witgo/internal/bridgebin"
 )
 
 type componentBridge struct {
 	native         *nativeBridge
-	imports        map[string]HostFunc
+	imports        map[string]HostFuncContext
 	maxResultBytes uint64
+	valueLimits    ValueLimits
 	handleStates   map[uint64][]*handleState
 	mu             sync.Mutex
 	closed         bool
+	closing        atomic.Bool
+	system         runtimeSystemConfig
 }
 
 type bridgeMessage struct {
@@ -44,26 +50,75 @@ type bridgeMessage struct {
 	Exports         []string          `json:"exports,omitempty"`
 	Signatures      map[string]string `json:"signatures,omitempty"`
 	Consumed        []uint64          `json:"consumed,omitempty"`
+	FuelRemaining   json.Number       `json:"fuel_remaining,omitempty"`
+	FuelEnabled     bool              `json:"fuel_enabled,omitempty"`
 }
+
+type runtimeSystemConfig struct {
+	enabled      bool
+	pluginID     string
+	maxCallDepth int
+	memoryLimit  int64
+	maxMessage   uint64
+	policy       FuelRequestPolicy
+	limits       FuelRequestLimits
+	observer     RuntimeSecurityObserver
+	initialFuel  uint64
+	perCall      bool
+}
+
+var runtimeCallSequence atomic.Uint64
 
 type bridgeImportSpec struct {
 	Interface string   `json:"interface"`
 	Functions []string `json:"functions"`
 }
 
-func prepareHostImports(imports []HostImport) (map[string]HostFunc, []string, []bridgeImportSpec, error) {
-	registered := make(map[string]HostFunc, len(imports))
+var runtimeSystemFunctions = []string{"call-info", "fuel-info", "is-cancelled", "limits", "request-additional-fuel"}
+
+func runtimeSystemConfigFor(options RuntimeOptions) runtimeSystemConfig {
+	configured := runtimeSystemConfig{
+		enabled: options.EnableRuntimeAPI, pluginID: strings.TrimSpace(options.PluginID),
+		maxCallDepth: 32, memoryLimit: options.MemoryLimitBytes, maxMessage: options.MaxResultBytes,
+		policy: options.FuelRequestPolicy, limits: options.FuelRequestLimits, observer: options.SecurityObserver,
+		initialFuel: options.Fuel, perCall: options.FuelPerCall > 0,
+	}
+	if options.FuelPerCall > 0 {
+		configured.initialFuel = options.FuelPerCall
+	}
+	if configured.pluginID == "" {
+		configured.pluginID = "plugin"
+	}
+	if host := options.CompositionHost; host != nil {
+		configured.maxCallDepth = host.options.MaxCallDepth
+		configured.policy = host.options.FuelRequestPolicy
+		configured.limits = host.options.FuelRequestLimits
+		configured.observer = host.options.SecurityObserver
+	}
+	if configured.policy == nil {
+		configured.policy = DenyFuelRequests{}
+	}
+	return configured
+}
+
+func prepareHostImports(imports []HostImport) (map[string]HostFuncContext, []string, []bridgeImportSpec, error) {
+	registered := make(map[string]HostFuncContext, len(imports))
 	registeredNames := make([]string, 0, len(imports))
 	grouped := make(map[string][]string)
 	for _, item := range imports {
-		if item.Interface == "" || item.Function == "" || item.Call == nil {
-			return nil, nil, nil, errors.New("host import interface, function, and Call are required")
+		if item.Interface == "" || item.Function == "" || (item.Call == nil && item.CallContext == nil) {
+			return nil, nil, nil, errors.New("host import interface, function, and Call or CallContext are required")
 		}
 		key := item.Interface + "#" + item.Function
 		if _, exists := registered[key]; exists {
 			return nil, nil, nil, fmt.Errorf("duplicate host import %q", key)
 		}
-		registered[key] = item.Call
+		call := item.CallContext
+		if call == nil {
+			legacy := item.Call
+			call = func(_ context.Context, args []any) (any, error) { return legacy(args) }
+		}
+		registered[key] = call
 		registeredNames = append(registeredNames, key)
 		grouped[item.Interface] = append(grouped[item.Interface], item.Function)
 	}
@@ -76,7 +131,10 @@ func prepareHostImports(imports []HostImport) (map[string]HostFunc, []string, []
 	return registered, registeredNames, specs, nil
 }
 
-func pingComponentBridge(component string, options RuntimeOptions, imports []HostImport) (*componentBridge, bridgeMessage, []string, error) {
+func pingComponentBridge(ctx context.Context, component string, options RuntimeOptions, imports []HostImport) (*componentBridge, bridgeMessage, []string, error) {
+	if err := contextError(ctx); err != nil {
+		return nil, bridgeMessage{}, nil, err
+	}
 	registered, registeredNames, specs, err := prepareHostImports(imports)
 	if err != nil {
 		return nil, bridgeMessage{}, nil, err
@@ -89,13 +147,30 @@ func pingComponentBridge(component string, options RuntimeOptions, imports []Hos
 	if err != nil {
 		return nil, bridgeMessage{}, nil, fmt.Errorf("load component bridge library %q: %w", path, err)
 	}
-	b := &componentBridge{native: native, imports: registered, maxResultBytes: options.MaxResultBytes}
+	system := runtimeSystemConfigFor(options)
+	if system.enabled {
+		for key := range registered {
+			if strings.HasPrefix(key, RuntimeSystemInterfaceID+"#") {
+				_ = native.close()
+				return nil, bridgeMessage{}, nil, errors.New("runtime system imports are reserved and cannot be overridden")
+			}
+		}
+		functions := append([]string(nil), runtimeSystemFunctions...)
+		specs = append(specs, bridgeImportSpec{Interface: RuntimeSystemInterfaceID, Functions: functions})
+		for _, function := range functions {
+			registeredNames = append(registeredNames, RuntimeSystemInterfaceID+"#"+function)
+		}
+		sort.Strings(registeredNames)
+	}
+	valueLimits := options.ValueLimits
+	if valueLimits.MaxResultBytes == 0 { valueLimits.MaxResultBytes = options.MaxResultBytes }
+	b := &componentBridge{native: native, imports: registered, maxResultBytes: valueLimits.MaxResultBytes, valueLimits: valueLimits, system: system}
 	clientVersion := witgoVersion()
 	init := map[string]any{
 		"type": "init", "protocol_version": bridgeProtocolVersion,
 		"witgo_version": clientVersion, "bridge_version": bridgeVersion,
 		"required_features": append([]string(nil), bridgeRequiredFeatures...),
-		"component":         component, "imports": specs,
+		"component":         component, "composition": cloneCompositionPlugs(options.CompositionPlugs), "imports": specs,
 		"options": map[string]any{"fuel": options.Fuel, "fuel_per_call": options.FuelPerCall, "timeout_millis": options.Timeout.Milliseconds(), "memory_limit_bytes": options.MemoryLimitBytes, "instance_limit": options.InstanceLimit},
 	}
 	if err := b.write(init); err != nil {
@@ -104,6 +179,10 @@ func pingComponentBridge(component string, options RuntimeOptions, imports []Hos
 	}
 	message, err := b.read()
 	if err != nil {
+		_ = b.abort()
+		return nil, bridgeMessage{}, nil, err
+	}
+	if err := contextError(ctx); err != nil {
 		_ = b.abort()
 		return nil, bridgeMessage{}, nil, err
 	}
@@ -122,21 +201,44 @@ func pingComponentBridge(component string, options RuntimeOptions, imports []Hos
 	return b, message, registeredNames, nil
 }
 
-func startComponentBridge(component string, options RuntimeOptions, imports []HostImport, contract *Contract) (*componentBridge, error) {
-	b, message, registeredNames, err := pingComponentBridge(component, options, imports)
+func startComponentBridge(ctx context.Context, component string, options RuntimeOptions, imports []HostImport, contract *Contract) (*componentBridge, error) {
+	b, message, registeredNames, err := pingComponentBridge(ctx, component, options, imports)
 	if err != nil {
 		return nil, err
 	}
+	if err := options.Capabilities.ValidateImports(message.Imports); err != nil {
+		_ = b.abort()
+		return nil, err
+	}
 	if contract != nil {
-		if err := compareFunctions("registered host adapters", contract.Imports, registeredNames); err != nil {
+		effectiveContract := compositionContract(*contract, options.CompositionPlugs)
+		if options.EnableRuntimeAPI {
+			expectsSystem := false
+			for _, name := range effectiveContract.Imports {
+				if strings.HasPrefix(name, RuntimeSystemInterfaceID+"#") {
+					expectsSystem = true
+					break
+				}
+			}
+			if !expectsSystem {
+				filtered := registeredNames[:0]
+				for _, name := range registeredNames {
+					if !strings.HasPrefix(name, RuntimeSystemInterfaceID+"#") {
+						filtered = append(filtered, name)
+					}
+				}
+				registeredNames = filtered
+			}
+		}
+		if err := compareFunctions("registered host adapters", effectiveContract.Imports, registeredNames); err != nil {
 			_ = b.abort()
 			return nil, err
 		}
-		if err := validateContract(*contract, message.Imports, message.Exports); err != nil {
+		if err := validateContract(effectiveContract, message.Imports, message.Exports); err != nil {
 			_ = b.abort()
 			return nil, err
 		}
-		if err := compareSignatures(contract.Signatures, message.Signatures); err != nil {
+		if err := compareSignatures(effectiveContract.Signatures, message.Signatures); err != nil {
 			_ = b.abort()
 			return nil, err
 		}
@@ -150,6 +252,10 @@ func startComponentBridge(component string, options RuntimeOptions, imports []Ho
 		_ = b.abort()
 		return nil, err
 	}
+	if err := contextError(ctx); err != nil {
+		_ = b.abort()
+		return nil, err
+	}
 	if message.Type != "ready" {
 		_ = b.abort()
 		return nil, messageError(message)
@@ -157,8 +263,8 @@ func startComponentBridge(component string, options RuntimeOptions, imports []Ho
 	return b, nil
 }
 
-func inspectComponentBridge(component string, options RuntimeOptions) (Contract, error) {
-	b, message, _, err := pingComponentBridge(component, options, nil)
+func inspectComponentBridge(ctx context.Context, component string, options RuntimeOptions) (Contract, error) {
+	b, message, _, err := pingComponentBridge(ctx, component, options, nil)
 	if err != nil {
 		return Contract{}, err
 	}
@@ -357,25 +463,55 @@ func bytesEqual(left, right []byte) bool {
 	return different == 0
 }
 
-func (b *componentBridge) call(name string, args []any) ([]any, error) {
+func (b *componentBridge) call(ctx context.Context, name string, args []any) ([]any, error) {
+	if err := contextError(ctx); err != nil {
+		return nil, err
+	}
 	b.mu.Lock()
-	defer b.mu.Unlock()
+	var securityEvents []FuelRequestEvent
+	defer func() {
+		b.mu.Unlock()
+		for _, event := range securityEvents {
+			b.observeFuelRequest(event)
+		}
+	}()
+	if err := contextError(ctx); err != nil {
+		return nil, err
+	}
 	if b.closed {
 		return nil, ErrRuntimeClosed
 	}
 	if args == nil {
 		args = []any{}
 	}
+	if err := validateArguments(args, b.valueLimits); err != nil { return nil, err }
+	callState := b.newRuntimeFuelCallState(ctx, name)
 	if err := b.write(map[string]any{"type": "call", "name": name, "args": args}); err != nil {
 		return nil, err
 	}
 	for {
+		if err := contextError(ctx); err != nil {
+			return nil, err
+		}
 		message, err := b.read()
 		if err != nil {
 			return nil, err
 		}
+		if err := contextError(ctx); err != nil {
+			return nil, err
+		}
 		switch message.Type {
 		case "host_call":
+			if message.Interface == RuntimeSystemInterfaceID {
+				response, event := b.handleRuntimeSystemCall(ctx, message, &callState)
+				if event != nil {
+					securityEvents = append(securityEvents, *event)
+				}
+				if err := b.write(response); err != nil {
+					return nil, err
+				}
+				continue
+			}
 			fn := b.imports[message.Interface+"#"+message.Function]
 			if fn == nil {
 				_ = b.write(map[string]any{"type": "host_result", "error": "host import is not registered"})
@@ -386,7 +522,10 @@ func (b *componentBridge) call(name string, args []any) ([]any, error) {
 				_ = b.write(map[string]any{"type": "host_result", "error": "host arguments are not an array"})
 				continue
 			}
-			result, callErr := fn(bound)
+			if err := contextError(ctx); err != nil {
+				return nil, err
+			}
+			result, callErr := fn(ctx, bound)
 			if callErr != nil {
 				_ = b.write(map[string]any{"type": "host_result", "error": callErr.Error()})
 				continue
@@ -404,6 +543,9 @@ func (b *componentBridge) call(name string, args []any) ([]any, error) {
 			if !ok {
 				return nil, errors.New("component bridge result values are not an array")
 			}
+			resultLimits := b.valueLimits
+			resultLimits.MaxArgumentBytes = 0
+			if err := validateArguments(bound, resultLimits); err != nil { return nil, err }
 			return bound, nil
 		case "error", "fatal":
 			return nil, messageError(message)
@@ -411,6 +553,138 @@ func (b *componentBridge) call(name string, args []any) ([]any, error) {
 			return nil, fmt.Errorf("unexpected bridge message %q", message.Type)
 		}
 	}
+}
+
+func (b *componentBridge) newRuntimeFuelCallState(ctx context.Context, function string) runtimeFuelCallState {
+	parent, ok := PluginCallContextFromContext(ctx)
+	callID := parent.ID
+	parentID := parent.ParentID
+	depth := parent.Depth
+	path := parent.Path
+	if !ok || callID == "" {
+		callID = fmt.Sprintf("witgo-runtime-%d", runtimeCallSequence.Add(1))
+		parentID = ""
+		depth = 1
+		path = []PluginCallFrame{{Plugin: b.system.pluginID, Function: function}}
+	}
+	info := RuntimeCallInfo{CallID: callID, Depth: uint32(depth), PluginID: b.system.pluginID}
+	if parentID != "" {
+		info.ParentCallID = Some(parentID)
+	} else {
+		info.ParentCallID = None[string]()
+	}
+	if deadline, exists := ctx.Deadline(); exists {
+		info.DeadlineUnixNanos = Some(deadline.UnixNano())
+	}
+	return runtimeFuelCallState{info: info, path: append([]PluginCallFrame(nil), path...), initial: b.system.initialFuel}
+}
+
+func (b *componentBridge) handleRuntimeSystemCall(ctx context.Context, message bridgeMessage, state *runtimeFuelCallState) (map[string]any, *FuelRequestEvent) {
+	result := func(value any) map[string]any { return map[string]any{"type": "host_result", "values": []any{value}} }
+	if !b.system.enabled {
+		return map[string]any{"type": "host_result", "error": "runtime system capability is unavailable"}, nil
+	}
+	deadline := state.info.DeadlineUnixNanos
+	currentFuel, fuelAvailable := uint64(0), false
+	if message.FuelEnabled && message.FuelRemaining != "" {
+		if parsed, err := parseUint(message.FuelRemaining.String()); err == nil {
+			currentFuel, fuelAvailable = parsed, true
+		}
+	}
+	switch message.Function {
+	case "call-info":
+		return result(state.info), nil
+	case "fuel-info":
+		info := RuntimeFuelInfo{Enabled: fuelAvailable, PerCall: b.system.perCall}
+		if fuelAvailable {
+			info.Remaining = Some(currentFuel)
+			if state.initial <= ^uint64(0)-state.totalGranted {
+				initial := state.initial + state.totalGranted
+				info.Initial = Some(initial)
+				if currentFuel <= initial {
+					info.Consumed = Some(initial - currentFuel)
+				}
+			}
+		}
+		return result(info), nil
+	case "limits":
+		maxDepth := uint32(0)
+		if b.system.maxCallDepth > 0 {
+			maxDepth = uint32(b.system.maxCallDepth)
+		}
+		remainingDepth := uint32(0)
+		if maxDepth > state.info.Depth {
+			remainingDepth = maxDepth - state.info.Depth
+		}
+		limits := RuntimeLimits{MaxCallDepth: maxDepth, RemainingCallDepth: remainingDepth, DeadlineUnixNanos: deadline}
+		if b.system.memoryLimit > 0 {
+			limits.MemoryLimitBytes = Some(uint64(b.system.memoryLimit))
+		}
+		if b.system.maxMessage > 0 {
+			limits.MaxMessageBytes = Some(b.system.maxMessage)
+		}
+		return result(limits), nil
+	case "is-cancelled":
+		return result(contextError(ctx) != nil), nil
+	case "request-additional-fuel":
+		return b.handleFuelRequest(ctx, message, state, currentFuel, fuelAvailable)
+	default:
+		return map[string]any{"type": "host_result", "error": "unknown runtime system function"}, nil
+	}
+}
+
+func (b *componentBridge) handleFuelRequest(ctx context.Context, message bridgeMessage, state *runtimeFuelCallState, current uint64, available bool) (map[string]any, *FuelRequestEvent) {
+	amount, reason := uint64(0), ""
+	if len(message.Args) == 2 {
+		amount, _ = interfaceUint64(message.Args[0])
+		reason, _ = message.Args[1].(string)
+	}
+	request := FuelRequest{CallID: state.info.CallID, PluginID: state.info.PluginID, Requested: amount, Reason: reason, CurrentFuel: current, InitialFuel: state.initial, TotalGranted: state.totalGranted, RequestCount: state.requestCount, CallDepth: int(state.info.Depth)}
+	if parent, ok := state.info.ParentCallID.Get(); ok {
+		request.ParentCallID = parent
+	}
+	if deadline, ok := state.info.DeadlineUnixNanos.Get(); ok {
+		request.Deadline = time.Unix(0, deadline)
+	}
+	if len(state.path) > 0 {
+		frame := state.path[len(state.path)-1]
+		request.ProviderID, request.Interface, request.Function = frame.Plugin, frame.Interface, frame.Function
+	}
+	state.requestCount++
+	if b.closing.Load() {
+		event := &FuelRequestEvent{Time: time.Now(), CallID: request.CallID, PluginID: request.PluginID, CallPath: append([]PluginCallFrame(nil), state.path...), Requested: amount, GuestReason: sanitizeGuestReason(reason), RemainingBefore: current, DenialReason: string(FuelDeniedRuntimeClosing)}
+		return map[string]any{"type": "host_result", "values": []any{map[string]any{"err": map[string]any{"case": string(FuelDeniedRuntimeClosing)}}}}, event
+	}
+	decision, denial, err := decideFuelRequest(ctx, b.system.policy, b.system.limits, request)
+	if !available && err == nil {
+		denial, err = FuelDeniedDisabled, ErrFuelRequestDisabled
+	}
+	event := &FuelRequestEvent{Time: time.Now(), CallID: request.CallID, PluginID: request.PluginID, CallPath: append([]PluginCallFrame(nil), state.path...), Requested: amount, GuestReason: sanitizeGuestReason(reason), RemainingBefore: current}
+	if err != nil {
+		event.DenialReason = string(denial)
+		variant := map[string]any{"case": string(denial)}
+		if denial == FuelDeniedRequestTooLarge {
+			variant["value"] = b.system.limits.MaxGrantPerRequest
+		}
+		return map[string]any{"type": "host_result", "values": []any{map[string]any{"err": variant}}}, event
+	}
+	state.totalGranted += decision.Grant
+	event.Granted = decision.Grant
+	event.RemainingAfter = current + decision.Grant
+	grant := FuelGrant{Requested: amount, Granted: decision.Grant, Remaining: event.RemainingAfter}
+	return map[string]any{"type": "host_result", "fuel_grant": decision.Grant, "values": []any{map[string]any{"ok": grant}}}, event
+}
+
+func sanitizeGuestReason(reason string) string {
+	reason = strings.ReplaceAll(reason, "\r", "\\r")
+	return strings.ReplaceAll(reason, "\n", "\\n")
+}
+
+func (b *componentBridge) observeFuelRequest(event FuelRequestEvent) {
+	if b.system.observer == nil {
+		return
+	}
+	func() { defer func() { _ = recover() }(); b.system.observer.OnFuelRequest(event) }()
 }
 
 func (b *componentBridge) releaseHandle(id uint64) error {
@@ -567,6 +841,7 @@ func (b *componentBridge) read() (bridgeMessage, error) {
 }
 
 func (b *componentBridge) close() error {
+	b.closing.Store(true)
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.closed {

@@ -1,5 +1,19 @@
 # История изменений
 
+## Следующий релиз
+
+- Добавлена Transparent Plugin Composition: WIT import может обслуживаться
+  одинаковым типизированным интерфейсом из Go или export другого компонента.
+- Добавлены `Host`, provider registry, descriptors, AutoBind, безопасный
+  lifecycle, hot replacement, call path, hooks и защита от циклов/reentrancy.
+- Generated interfaces унифицированы: методы import и export возвращают `error`.
+- WebAssembly providers автоматически компонуются с consumer в одном Wasmtime
+  Store. `resource`, `future`, `stream` и `error-context` проходят внутри
+  коробки без сериализации через Go; между независимыми Store они по-прежнему
+  отклоняются с `ErrCrossRuntimeHandle`.
+- Рёбра графа используют полный WIT ID, проверяются на дубликаты, несовместимые
+  типы и циклы до instantiation. Одинаковые короткие имена безопасно различаются.
+
 ## v0.2.0
 
 - Добавлен строгий version и feature handshake между Go и Rust bridge.

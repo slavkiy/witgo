@@ -104,6 +104,44 @@ func TestCompareContractsMismatchDetails(t *testing.T) {
 	}
 }
 
+func TestCapabilityPolicy(t *testing.T) {
+	policy := CapabilityPolicy{
+		Allow: []string{"example:plugins/host@1.0.0", "wasi:logging/logger@0.2.0#write*"},
+		Deny:  []string{"example:plugins/host@1.0.0#delete-all"},
+	}
+	for _, allowed := range []string{
+		"example:plugins/host@1.0.0#read",
+		"wasi:logging/logger@0.2.0#write-info",
+	} {
+		if !policy.Allows(allowed) {
+			t.Fatalf("policy rejected %q", allowed)
+		}
+	}
+	for _, denied := range []string{
+		"example:plugins/host@1.0.0#delete-all",
+		"example:plugins/admin@1.0.0#read",
+	} {
+		if policy.Allows(denied) {
+			t.Fatalf("policy allowed %q", denied)
+		}
+	}
+	err := policy.ValidateImports([]string{
+		"example:plugins/host@1.0.0#read",
+		"example:plugins/host@1.0.0#delete-all",
+		"example:plugins/admin@1.0.0#read",
+	})
+	if !errors.Is(err, ErrCapabilityDenied) {
+		t.Fatalf("ValidateImports error = %v", err)
+	}
+	var typed *CapabilityPolicyError
+	if !errors.As(err, &typed) || !reflect.DeepEqual(typed.Denied, []string{
+		"example:plugins/admin@1.0.0#read",
+		"example:plugins/host@1.0.0#delete-all",
+	}) {
+		t.Fatalf("capability error = %#v", err)
+	}
+}
+
 func TestRuntimeIsClosed(t *testing.T) {
 	var runtime *Runtime
 	if !runtime.IsClosed() {
