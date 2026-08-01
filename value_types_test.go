@@ -122,6 +122,16 @@ func TestMapJSONAndHelpers(t *testing.T) {
 	if err := json.Unmarshal([]byte(`[["x",1],["x",2]]`), &decoded); err == nil {
 		t.Fatal("duplicate map key was accepted")
 	}
+	cloned := decoded.Clone()
+	if !cloned.Delete("answer") {
+		t.Fatal("delete did not report existing key")
+	}
+	if _, ok := decoded.Get("answer"); ok == false {
+		t.Fatal("clone mutated original map")
+	}
+	if NewMap[string, uint32]().Delete("missing") {
+		t.Fatal("delete reported a missing key as present")
+	}
 }
 
 func TestDynamicTupleHelpers(t *testing.T) {
@@ -132,5 +142,16 @@ func TestDynamicTupleHelpers(t *testing.T) {
 	value, present, err := TupleValue[uint32](tuple, 1)
 	if err != nil || !present || value != 9 {
 		t.Fatalf("tuple value = %d, %t, %v", value, present, err)
+	}
+	values := tuple.Values()
+	values[0] = "mutated"
+	if current, _ := tuple.At(0); current != "value" {
+		t.Fatalf("tuple values leaked backing storage: %#v", tuple)
+	}
+	if _, _, err := TupleValue[uint32](tuple, 0); err == nil {
+		t.Fatal("tuple value conversion accepted wrong target type")
+	}
+	if tuple.Set(5, "nope") {
+		t.Fatal("tuple set accepted out-of-range index")
 	}
 }

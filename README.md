@@ -236,7 +236,7 @@ Description: Resizes uploaded images and creates previews.
 
 - [WIT-контракт](examples/generate/wit/plugin.wit)
 - [Сгенерированный package](examples/generate/out/bindings.gen.go)
-- [Component plugin](examples/plugin/plugin.wat)
+- [Component plugin](examples/plugin/component.wasm)
 - [Go host](examples/server/main.go)
 
 ## Как это работает

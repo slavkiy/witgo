@@ -67,6 +67,43 @@ func TestCompareContracts(t *testing.T) {
 	}
 }
 
+func TestCompareContractsMismatchDetails(t *testing.T) {
+	report, err := CompareContracts(
+		Contract{
+			Imports:    []string{"host#read"},
+			Exports:    []string{"api#run"},
+			Signatures: map[string]string{"api#run": "(string)->()"},
+		},
+		Contract{
+			Imports:    []string{"host#write"},
+			Exports:    []string{"api#run", "api#debug"},
+			Signatures: map[string]string{"api#run": "(u32)->()"},
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Compatible {
+		t.Fatal("incompatible contracts were reported compatible")
+	}
+	if !reflect.DeepEqual(report.Imports.Missing, []string{"host#read"}) {
+		t.Fatalf("missing imports = %v", report.Imports.Missing)
+	}
+	if !reflect.DeepEqual(report.Imports.Unexpected, []string{"host#write"}) {
+		t.Fatalf("unexpected imports = %v", report.Imports.Unexpected)
+	}
+	if !reflect.DeepEqual(report.Exports.Unexpected, []string{"api#debug"}) {
+		t.Fatalf("unexpected exports = %v", report.Exports.Unexpected)
+	}
+	if len(report.Signatures) != 1 || report.Signatures[0].Function != "api#run" {
+		t.Fatalf("signature mismatches = %#v", report.Signatures)
+	}
+	summary := report.Summary()
+	if !strings.Contains(summary, "host#read") || !strings.Contains(summary, "api#debug") || !strings.Contains(summary, `expected="(string)->()" actual="(u32)->()"`) {
+		t.Fatalf("unexpected summary = %q", summary)
+	}
+}
+
 func TestRuntimeIsClosed(t *testing.T) {
 	var runtime *Runtime
 	if !runtime.IsClosed() {

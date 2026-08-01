@@ -20,7 +20,7 @@ func main() {
 	if !ok {
 		log.Fatal("cannot resolve server directory")
 	}
-	wasmFile := filepath.Join(filepath.Dir(sourceFile), "..", "plugin", "plugin.wat")
+	wasmFile := filepath.Join(filepath.Dir(sourceFile), "..", "plugin", "component.wasm")
 
 	plugin, err := contract.OpenPlugin(wasmFile, contract.PluginImports{Host: host{}})
 	if err != nil {
