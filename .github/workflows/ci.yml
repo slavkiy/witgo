@@ -68,9 +68,6 @@ jobs:
 
   tinygo:
     runs-on: ubuntu-latest
-    env:
-      # TinyGo's bundled linker does not search Ubuntu's multiarch directory.
-      LIBRARY_PATH: /usr/lib/x86_64-linux-gnu
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v6
