@@ -246,9 +246,6 @@ func (r *renderer) inspectType(typ ir.Type) {
 		}
 	case *ir.TupleType:
 		r.needsWitgo = true
-		if len(typ.Items) > 16 && r.err == nil {
-			r.err = fmt.Errorf("tuple with %d items is unsupported; maximum generated arity is 16", len(typ.Items))
-		}
 		for _, item := range typ.Items {
 			r.inspectType(item)
 		}
@@ -1169,7 +1166,8 @@ func (r *renderer) goType(typ ir.Type) string {
 			return "witgo.Handle"
 		case "map":
 			if len(typ.Args) == 2 {
-				return "map[" + r.goType(typ.Args[0]) + "]" + r.goType(typ.Args[1])
+				r.needsWitgo = true
+				return "witgo.Map[" + r.goType(typ.Args[0]) + ", " + r.goType(typ.Args[1]) + "]"
 			}
 		case "result":
 			r.needsWitgo = true
@@ -1188,6 +1186,9 @@ func (r *renderer) goType(typ ir.Type) string {
 		return goName(typ.Name) + "[" + strings.Join(args, ", ") + "]"
 	case *ir.TupleType:
 		r.needsWitgo = true
+		if len(typ.Items) > 16 {
+			return "witgo.Tuple"
+		}
 		if len(typ.Items) == 0 {
 			return "witgo.Tuple0"
 		}

@@ -297,6 +297,8 @@ interface api {
     type simple-result = result<string>;
     type empty-result = result<>;
     type failure-only = result<_, string>;
+    type dictionary = map<string, maybe-name>;
+    type large-tuple = tuple<u8, u8, u8, u8, u8, u8, u8, u8, u8, u8, u8, u8, u8, u8, u8, u8, u8>;
     enum color { red, green }
     flags permissions { read, write }
     variant choice { none, text(string), pair(pair) }
@@ -326,6 +328,8 @@ world plugin { export api; }
 		"type SimpleResult = witgo.Result[string, witgo.Unit]",
 		"type EmptyResult = witgo.Result[witgo.Unit, witgo.Unit]",
 		"type FailureOnly = witgo.Result[witgo.Unit, string]",
+		"type Dictionary = witgo.Map[string, MaybeName]",
+		"type LargeTuple = witgo.Tuple",
 		"func ParseColor(value string) (Color, error)",
 		"func ColorValues() []Color",
 		"func (value Permissions) Has(flags Permissions) bool",

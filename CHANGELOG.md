@@ -11,6 +11,7 @@
   bindings and end-to-end tests.
 - Added type-safe Option, Result, Char, Tuple0...Tuple16, generated enum/flags/
   variant helpers, and collision-safe generated client locals.
+- Added dynamic large tuples and runtime-compatible generic maps.
 - Added CI coverage for Linux, macOS, and Windows on amd64 and arm64.
 - Removed the pre-Component-Model API and deprecated CLI flags.
 

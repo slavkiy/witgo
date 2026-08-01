@@ -7,7 +7,7 @@ const (
 	bridgeVersion                = "0.2.0"
 )
 
-var bridgeRequiredFeatures = []string{"async-handles-v1", "bidirectional-handshake-v1", "contract-ping-v1", "handle-lifecycle-v1", "option-envelope-v1", "typed-signatures-v1"}
+var bridgeRequiredFeatures = []string{"async-handles-v1", "bidirectional-handshake-v1", "contract-ping-v1", "handle-lifecycle-v1", "map-value-v1", "option-envelope-v1", "typed-signatures-v1"}
 
 func witgoVersion() string {
 	info, ok := debug.ReadBuildInfo()

@@ -107,6 +107,10 @@ func pingComponentBridge(component string, options RuntimeOptions, imports []Hos
 		_ = b.abort()
 		return nil, bridgeMessage{}, nil, err
 	}
+	if message.Type == "error" || message.Type == "fatal" {
+		_ = b.abort()
+		return nil, bridgeMessage{}, nil, messageError(message)
+	}
 	if err := validateBridgeHandshake(message, clientVersion); err != nil {
 		_ = b.abort()
 		return nil, bridgeMessage{}, nil, err

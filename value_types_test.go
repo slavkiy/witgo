@@ -105,3 +105,32 @@ func TestUnitJSON(t *testing.T) {
 		t.Fatal("non-null unit was accepted")
 	}
 }
+
+func TestMapJSONAndHelpers(t *testing.T) {
+	value := NewMap[string, Option[uint32]]().Put("answer", Some(uint32(42)))
+	data, err := json.Marshal(value)
+	if err != nil || string(data) != `[["answer",{"some":42}]]` {
+		t.Fatalf("marshal map = %s, %v", data, err)
+	}
+	var decoded Map[string, Option[uint32]]
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := decoded.Get("answer"); !ok || got.Value != 42 {
+		t.Fatalf("decoded map = %#v", decoded)
+	}
+	if err := json.Unmarshal([]byte(`[["x",1],["x",2]]`), &decoded); err == nil {
+		t.Fatal("duplicate map key was accepted")
+	}
+}
+
+func TestDynamicTupleHelpers(t *testing.T) {
+	tuple := NewTuple("value", float64(7))
+	if !tuple.Set(1, uint32(9)) {
+		t.Fatal("tuple set failed")
+	}
+	value, present, err := TupleValue[uint32](tuple, 1)
+	if err != nil || !present || value != 9 {
+		t.Fatalf("tuple value = %d, %t, %v", value, present, err)
+	}
+}

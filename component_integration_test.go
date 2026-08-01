@@ -1,6 +1,7 @@
 package witgo
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -89,6 +90,40 @@ const valueTypesComponent = `(component
     (export "roundtrip-char" (func $char))
   )
   (export "test:types/api@1.0.0" (instance $api))
+)`
+
+const mapComponent = `(component
+  (core module $m
+    (memory (export "memory") 1)
+    (global $heap (mut i32) (i32.const 1024))
+    (func (export "realloc") (param i32 i32 i32 i32) (result i32)
+      global.get $heap
+      global.get $heap
+      local.get 3
+      i32.add
+      global.set $heap)
+    (func (export "map-id") (param i32 i32) (result i32)
+      i32.const 8
+      local.get 0
+      i32.store
+      i32.const 12
+      local.get 1
+      i32.store
+      i32.const 8)
+  )
+  (core instance $i (instantiate $m))
+  (alias core export $i "memory" (core memory $memory))
+  (alias core export $i "realloc" (core func $realloc))
+  (alias core export $i "map-id" (core func $map-id))
+
+  (type $dictionary (map string u32))
+  (func $roundtrip (param "value" $dictionary) (result $dictionary)
+    (canon lift (core func $map-id) (memory $memory) (realloc $realloc)))
+  (instance $api
+    (export "dictionary" (type $dictionary))
+    (export "roundtrip-map" (func $roundtrip))
+  )
+  (export "test:map/api@1.0.0" (instance $api))
 )`
 
 const compositeTypesComponent = `(component
@@ -254,6 +289,33 @@ func TestComponentValueTypes(t *testing.T) {
 	}
 	if err := runtime.Close(); err != nil {
 		t.Fatalf("second Close: %v", err)
+	}
+}
+
+func TestComponentMap(t *testing.T) {
+	if _, err := bridgebin.Library(); errors.Is(err, bridgebin.ErrUnavailable) && os.Getenv("WITGO_COMPONENT_LIBRARY") == "" {
+		t.Skip("component bridge is not available")
+	}
+	runtime, err := LoadRuntimeFromBytes([]byte(mapComponent))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = runtime.Close() })
+	input := NewMap[string, uint32]().Put("one", 1).Put("two", 2)
+	result, err := runtime.Call("test:map/api@1.0.0#roundtrip-map", input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var output Map[string, uint32]
+	if err := json.Unmarshal(data, &output); err != nil {
+		t.Fatal(err)
+	}
+	if one, ok := output.Get("one"); !ok || one != 1 || len(output) != 2 {
+		t.Fatalf("map result = %#v", output)
 	}
 }
 

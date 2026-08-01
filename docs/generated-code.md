@@ -90,7 +90,8 @@ if err := contract.CheckPlugin("./plugin.wasm"); err != nil {
 ## Composite value representation
 
 - WIT `char`, `option`, `result` and tuples use `witgo.Char`, `Option`,
-  `Result` and `Tuple0...Tuple16` with strict codecs and constructors.
+  `Result`, typed `Tuple0...Tuple16`, and flexible `Tuple` with strict codecs.
+- WIT maps use `witgo.Map[K,V]` and the Component Model pair-array wire form.
 - WIT enums are named Go string types with `Parse`, `Valid`, `String` and
   values-list helpers.
 - WIT flags remain named `uint64` bit sets and add `Parse`, `Valid`, `Has`,

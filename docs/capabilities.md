@@ -82,13 +82,13 @@ Core WebAssembly modules не поддерживаются и отклоняют
 | `record` | struct с WIT JSON tags | да | Поддерживаются вложенные поля. |
 | `list<T>` | `[]T` | да | Поддерживаются вложенные/сложные списки. |
 | `option<T>` | `witgo.Option[T]` | да | `Some`, `None`, getters, pointer conversion и map helpers; строгие `{some:...}`/`{none:true}` envelopes сохраняют nested options. |
-| `tuple<...>` | `witgo.Tuple0` ... `witgo.Tuple16` | да | Typed fields, constructors, `Values` и строгий JSON-array codec. Arity выше 16 отклоняется. |
+| `tuple<...>` | `witgo.Tuple0` ... `witgo.Tuple16`, затем `witgo.Tuple` | да | До 16 элементов доступны полностью typed fields; большая arity использует dynamic tuple с `At`, `Set`, `TupleValue`. |
 | `result<T,E>` | `witgo.Result[T,E]` | да | Ровно одна активная ветвь; constructors, getters, match/map helpers и строгий codec. |
 | `enum` | named `string` + constants | да | Генерируются `Parse<Type>`, `Valid`, `String` и `<Type>Values`. |
 | `flags` | named `uint64` bitset | да | Генерируются `Parse<Type>`, `Valid`, `Has`, `Add`, `Remove`, `Names` и строгий codec. Предел - 64 flags. |
 | `variant` | struct с `Kind` и payload pointers | да | Для каждого case генерируются constructor, predicate и безопасный accessor, плюс строгий codec. |
 | aliases | Go alias | зависит от target | Возможности совпадают с базовым типом. |
-| `map<K,V>` | `map[K]V` | нет | Parser/generator extension существует, но текущий Wasmtime Component type и bridge не обеспечивают runtime ABI для map. |
+| `map<K,V>` | `witgo.Map[K,V]` | да | Pair-array codec соответствует Wasmtime map ABI; доступны `NewMap`, `Get`, `Put`, `Delete`, `Clone`. Ключ должен быть comparable в Go. |
 | `own<T>` / `borrow<T>` | `witgo.Handle` | да | Bridge проверяет Store/type, переносит `own`, временно заимствует `borrow` и не позволяет использовать закрытый token. |
 | `resource` | `witgo.Handle` | частично | Guest resource можно получить, передать обратно и уничтожить через `Close`. Конкретная resource identity проверяется bridge-ом во время вызова, но разные resources пока имеют один Go-тип. Generated constructors/method dispatch и host-defined resource imports не автоматизированы. |
 | `future<T>` | `witgo.Handle` | частично | Handle можно передавать и закрывать. Generic Go API для ожидания/чтения typed payload пока отсутствует. |

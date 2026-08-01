@@ -21,6 +21,53 @@ func decodeTuple(data []byte, targets ...any) error {
 	return nil
 }
 
+// Tuple is the flexible representation used for WIT tuples with more than 16
+// items. Smaller tuples use the fully typed Tuple0...Tuple16 families.
+type Tuple []any
+
+// NewTuple constructs a dynamic tuple.
+func NewTuple(values ...any) Tuple { return append(Tuple(nil), values...) }
+
+// Values returns an independent copy of the tuple values.
+func (t Tuple) Values() []any { return append([]any(nil), t...) }
+
+// At returns a value by index.
+func (t Tuple) At(index int) (any, bool) {
+	if index < 0 || index >= len(t) {
+		return nil, false
+	}
+	return t[index], true
+}
+
+// Set replaces a value by index.
+func (t Tuple) Set(index int, value any) bool {
+	if index < 0 || index >= len(t) {
+		return false
+	}
+	t[index] = value
+	return true
+}
+
+// TupleValue converts one dynamic tuple item to T using the Component Model
+// JSON representation.
+func TupleValue[T any](tuple Tuple, index int) (T, bool, error) {
+	value, ok := tuple.At(index)
+	if !ok {
+		var zero T
+		return zero, false, nil
+	}
+	data, err := json.Marshal(value)
+	if err != nil {
+		var zero T
+		return zero, true, err
+	}
+	var result T
+	if err := json.Unmarshal(data, &result); err != nil {
+		return result, true, err
+	}
+	return result, true, nil
+}
+
 type Tuple0 struct{}
 
 func NewTuple0() Tuple0                       { return Tuple0{} }

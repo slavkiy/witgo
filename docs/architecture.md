@@ -43,7 +43,7 @@ terminating the Go process; this is the tradeoff for in-process execution.
 ## Supported values
 
 The codec implements booleans, all WIT integers and floats, `char`, strings,
-lists, records, tuples, variants, enums, options, results and flags.
+lists, maps, records, tuples, variants, enums, options, results and flags.
 Resources, futures, streams and `error-context` use opaque runtime-bound handle
 tokens. The bridge retains the corresponding Wasmtime value, validates its
 kind and Store, transfers `own` values, preserves `borrow` values for the call,

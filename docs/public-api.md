@@ -101,7 +101,8 @@ Value helpers used by generated bindings:
   `MapResult`, `MapResultErr`;
 - `Char`: `NewChar`, `ParseChar`, `Rune`, `String`;
 - `Tuple0` ... `Tuple16`: `NewTupleN`, typed `V0...` fields, `Values` and
-  strict array codecs.
+  strict array codecs; larger tuples use `Tuple`, `At`, `Set`, `TupleValue`;
+- `Map[K,V]`: `NewMap`, `Get`, `Put`, `Delete`, `Clone` and strict pair codec.
 
 Имя interface export имеет вид
 `namespace:package/interface@version#function`. Direct world functions передают

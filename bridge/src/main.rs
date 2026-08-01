@@ -19,6 +19,7 @@ const FEATURES: &[&str] = &[
     "bidirectional-handshake-v1",
     "contract-ping-v1",
     "handle-lifecycle-v1",
+    "map-value-v1",
     "option-envelope-v1",
     "typed-signatures-v1",
 ];
@@ -223,6 +224,7 @@ fn run_protocol(protocol: Arc<Mutex<Protocol>>) -> Result<()> {
 
     let mut config = Config::new();
     config.wasm_component_model(true);
+    config.wasm_component_model_map(true);
     config.concurrency_support(true);
     let fuel_enabled = init.options.fuel > 0 || init.options.fuel_per_call > 0;
     config.consume_fuel(fuel_enabled);
@@ -1018,6 +1020,7 @@ mod tests {
     fn component_ping_reports_sorted_function_names() -> Result<()> {
         let mut config = Config::new();
         config.wasm_component_model(true);
+        config.wasm_component_model_map(true);
         let engine = Engine::new(&config)?;
         let component = Component::new(
             &engine,
