@@ -116,12 +116,12 @@ func TestHostEnforcesCallDepthAndDeadline(t *testing.T) {
 func TestUnregisterWaitsAndClosesOnlyOwnedProvider(t *testing.T) {
 	host, _ := NewHost()
 	entered, release := make(chan struct{}), make(chan struct{})
-	var closes atomic.Int32
+	var closes int32
 	handle, err := host.RegisterProvider("codec", testCodecDescriptor, func(context.Context, string, []any) (any, error) {
 		close(entered)
 		<-release
 		return nil, nil
-	}, OwnedProvider(func() error { closes.Add(1); return nil }))
+	}, OwnedProvider(func() error { atomic.AddInt32(&closes, 1); return nil }))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -143,8 +143,8 @@ func TestUnregisterWaitsAndClosesOnlyOwnedProvider(t *testing.T) {
 	if err := <-unregistered; err != nil {
 		t.Fatal(err)
 	}
-	if closes.Load() != 1 {
-		t.Fatalf("owned close count = %d", closes.Load())
+	if atomic.LoadInt32(&closes) != 1 {
+		t.Fatalf("owned close count = %d", atomic.LoadInt32(&closes))
 	}
 }
 

@@ -42,9 +42,9 @@ wasm-role-test:
 	GOOS=wasip1 GOARCH=wasm CGO_ENABLED=0 go test -c -o .witgo-wasm-role.test .
 
 tinygo-test:
-	tinygo test ./... -run '^$$'
+	tinygo test -run '^$$' ./...
 
 tinygo-e2e: bridge-build
-	CGO_ENABLED=1 WITGO_COMPONENT_LIBRARY=bridge/target/debug/libwitgo_bridge.so WITGO_DISABLE_EMBEDDED_BRIDGE=1 tinygo test . -run '^(TestTinyGoUsesCGoBridgeBackend|TestComponentVersionHandshake)$$'
+	CGO_ENABLED=1 WITGO_COMPONENT_LIBRARY=bridge/target/debug/libwitgo_bridge.so WITGO_DISABLE_EMBEDDED_BRIDGE=1 tinygo test -run '^(TestTinyGoUsesCGoBridgeBackend|TestComponentVersionHandshake)$$' .
 
 ci: test vet witgen-test wasm-role-test tinygo-test bridge-test lint

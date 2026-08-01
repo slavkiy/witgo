@@ -81,7 +81,7 @@ jobs:
       - name: Compile all Go packages with TinyGo
         env:
           CGO_ENABLED: '1'
-        run: tinygo test ./... -run '^$'
+        run: tinygo test -run '^$' ./...
       - name: Verify automatic WASM plugin role
         env:
           GOOS: wasip1
@@ -96,4 +96,4 @@ jobs:
           CGO_ENABLED: '1'
           WITGO_COMPONENT_LIBRARY: bridge/target/debug/libwitgo_bridge.so
           WITGO_DISABLE_EMBEDDED_BRIDGE: '1'
-        run: tinygo test . -run '^(TestTinyGoUsesCGoBridgeBackend|TestComponentVersionHandshake)$'
+        run: tinygo test -run '^(TestTinyGoUsesCGoBridgeBackend|TestComponentVersionHandshake)$' .

@@ -43,6 +43,12 @@ pub extern "C" fn witgo_bridge_new() -> *mut BridgeHandle {
 }
 
 #[unsafe(no_mangle)]
+/// Sends one JSON protocol message to a bridge instance.
+///
+/// # Safety
+///
+/// `handle` must be a live pointer returned by [`witgo_bridge_new`]. `data`
+/// must point to at least `len` readable bytes for the duration of this call.
 pub unsafe extern "C" fn witgo_bridge_send(
     handle: *mut BridgeHandle,
     data: *const u8,
@@ -63,6 +69,13 @@ pub unsafe extern "C" fn witgo_bridge_send(
 }
 
 #[unsafe(no_mangle)]
+/// Receives one JSON protocol message allocated by the bridge.
+///
+/// # Safety
+///
+/// `handle` must be a live pointer returned by [`witgo_bridge_new`], and `len`
+/// must be writable. A non-null result must be released exactly once with
+/// [`witgo_bridge_free`] using the returned length.
 pub unsafe extern "C" fn witgo_bridge_receive(
     handle: *mut BridgeHandle,
     len: *mut usize,
@@ -85,6 +98,12 @@ pub unsafe extern "C" fn witgo_bridge_receive(
 }
 
 #[unsafe(no_mangle)]
+/// Releases a message buffer returned by [`witgo_bridge_receive`].
+///
+/// # Safety
+///
+/// `data` must be null or a pointer returned by [`witgo_bridge_receive`] that
+/// has not already been freed, and `len` must be its original length.
 pub unsafe extern "C" fn witgo_bridge_free(data: *mut u8, len: usize) {
     if !data.is_null() {
         let slice = std::ptr::slice_from_raw_parts_mut(data, len);
@@ -93,6 +112,12 @@ pub unsafe extern "C" fn witgo_bridge_free(data: *mut u8, len: usize) {
 }
 
 #[unsafe(no_mangle)]
+/// Closes and releases a bridge instance.
+///
+/// # Safety
+///
+/// `handle` must be null or a live pointer returned by [`witgo_bridge_new`]. A
+/// non-null handle must be closed exactly once and not used after this call.
 pub unsafe extern "C" fn witgo_bridge_close(handle: *mut BridgeHandle) {
     if handle.is_null() {
         return;

@@ -70,7 +70,10 @@ fn instantiate_composition_node(
         if dependency.interface.is_empty() || dependency.component.is_empty() {
             bail!("composition interface and component path must not be empty")
         }
-        if interfaces.insert(dependency.interface.clone(), ()).is_some() {
+        if interfaces
+            .insert(dependency.interface.clone(), ())
+            .is_some()
+        {
             bail!(
                 "multiple composition providers selected for exact interface {:?}",
                 dependency.interface

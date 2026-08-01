@@ -16,10 +16,17 @@ pub fn json_to_val(value: &Value, ty: &Type, handles: &Arc<Mutex<HandleTable>>) 
         Type::U32 => Val::U32(number_u64(value)?.try_into()?),
         Type::S64 => Val::S64(number_i64(value)?),
         Type::U64 => Val::U64(number_u64(value)?),
-        Type::Float32 => Val::Float32(value.as_f64().ok_or_else(|| anyhow!("expected number"))? as f32),
+        Type::Float32 => {
+            Val::Float32(value.as_f64().ok_or_else(|| anyhow!("expected number"))? as f32)
+        }
         Type::Float64 => Val::Float64(value.as_f64().ok_or_else(|| anyhow!("expected number"))?),
         Type::Char => Val::Char(single_char(value)?),
-        Type::String => Val::String(value.as_str().ok_or_else(|| anyhow!("expected string"))?.to_owned()),
+        Type::String => Val::String(
+            value
+                .as_str()
+                .ok_or_else(|| anyhow!("expected string"))?
+                .to_owned(),
+        ),
         Type::List(list) => Val::List(
             array(value)?
                 .iter()
@@ -42,7 +49,9 @@ pub fn json_to_val(value: &Value, ty: &Type, handles: &Arc<Mutex<HandleTable>>) 
                 .collect::<Result<_>>()?,
         ),
         Type::Record(record) => {
-            let object = value.as_object().ok_or_else(|| anyhow!("expected record object"))?;
+            let object = value
+                .as_object()
+                .ok_or_else(|| anyhow!("expected record object"))?;
             Val::Record(
                 record
                     .fields()
@@ -50,7 +59,10 @@ pub fn json_to_val(value: &Value, ty: &Type, handles: &Arc<Mutex<HandleTable>>) 
                         let value = object
                             .get(field.name)
                             .ok_or_else(|| anyhow!("record field {:?} is missing", field.name))?;
-                        Ok((field.name.to_owned(), json_to_val(value, &field.ty, handles)?))
+                        Ok((
+                            field.name.to_owned(),
+                            json_to_val(value, &field.ty, handles)?,
+                        ))
                     })
                     .collect::<Result<_>>()?,
             )
@@ -59,7 +71,11 @@ pub fn json_to_val(value: &Value, ty: &Type, handles: &Arc<Mutex<HandleTable>>) 
             let values = array(value)?;
             let types = tuple.types().collect::<Vec<_>>();
             if values.len() != types.len() {
-                bail!("tuple has {} values, expected {}", values.len(), types.len())
+                bail!(
+                    "tuple has {} values, expected {}",
+                    values.len(),
+                    types.len()
+                )
             }
             Val::Tuple(
                 values
@@ -70,7 +86,9 @@ pub fn json_to_val(value: &Value, ty: &Type, handles: &Arc<Mutex<HandleTable>>) 
             )
         }
         Type::Variant(variant) => {
-            let object = value.as_object().ok_or_else(|| anyhow!("expected variant object"))?;
+            let object = value
+                .as_object()
+                .ok_or_else(|| anyhow!("expected variant object"))?;
             let case = object
                 .get("case")
                 .and_then(Value::as_str)
@@ -82,7 +100,9 @@ pub fn json_to_val(value: &Value, ty: &Type, handles: &Arc<Mutex<HandleTable>>) 
                 .ty;
             let payload = match case_ty {
                 Some(ty) => Some(Box::new(json_to_val(
-                    object.get("value").ok_or_else(|| anyhow!("variant.value is required"))?,
+                    object
+                        .get("value")
+                        .ok_or_else(|| anyhow!("variant.value is required"))?,
                     &ty,
                     handles,
                 )?)),
@@ -91,14 +111,18 @@ pub fn json_to_val(value: &Value, ty: &Type, handles: &Arc<Mutex<HandleTable>>) 
             Val::Variant(case.to_owned(), payload)
         }
         Type::Enum(enumeration) => {
-            let name = value.as_str().ok_or_else(|| anyhow!("expected enum string"))?;
+            let name = value
+                .as_str()
+                .ok_or_else(|| anyhow!("expected enum string"))?;
             if !enumeration.names().any(|item| item == name) {
                 bail!("unknown enum case {name:?}")
             }
             Val::Enum(name.to_owned())
         }
         Type::Option(option) => {
-            let object = value.as_object().ok_or_else(|| anyhow!("expected option object"))?;
+            let object = value
+                .as_object()
+                .ok_or_else(|| anyhow!("expected option object"))?;
             if object.len() != 1 {
                 bail!("option must contain exactly one of some or none")
             }
@@ -111,7 +135,9 @@ pub fn json_to_val(value: &Value, ty: &Type, handles: &Arc<Mutex<HandleTable>>) 
             }
         }
         Type::Result(result) => {
-            let object = value.as_object().ok_or_else(|| anyhow!("expected result object"))?;
+            let object = value
+                .as_object()
+                .ok_or_else(|| anyhow!("expected result object"))?;
             if let Some(ok) = object.get("ok") {
                 Val::Result(Ok(match result.ok() {
                     Some(ty) => Some(Box::new(json_to_val(ok, &ty, handles)?)),
@@ -129,7 +155,11 @@ pub fn json_to_val(value: &Value, ty: &Type, handles: &Arc<Mutex<HandleTable>>) 
         Type::Flags(flags) => {
             let names = array(value)?
                 .iter()
-                .map(|v| v.as_str().map(str::to_owned).ok_or_else(|| anyhow!("flag must be a string")))
+                .map(|v| {
+                    v.as_str()
+                        .map(str::to_owned)
+                        .ok_or_else(|| anyhow!("flag must be a string"))
+                })
                 .collect::<Result<Vec<_>>>()?;
             for name in &names {
                 if !flags.names().any(|item| item == name) {
@@ -170,7 +200,12 @@ pub fn val_to_json(value: &Val, handles: &Arc<Mutex<HandleTable>>) -> Result<Val
         Val::Map(values) => Value::Array(
             values
                 .iter()
-                .map(|(k, v)| Ok(Value::Array(vec![val_to_json(k, handles)?, val_to_json(v, handles)?])))
+                .map(|(k, v)| {
+                    Ok(Value::Array(vec![
+                        val_to_json(k, handles)?,
+                        val_to_json(v, handles)?,
+                    ]))
+                })
                 .collect::<Result<_>>()?,
         ),
         Val::Record(fields) => Value::Object(
@@ -194,10 +229,30 @@ pub fn val_to_json(value: &Val, handles: &Arc<Mutex<HandleTable>>) -> Result<Val
             json!({"err": value.as_deref().map(|value| val_to_json(value, handles)).transpose()?.unwrap_or(Value::Null)})
         }
         Val::Flags(values) => json!(values),
-        Val::Resource(resource) => insert_handle(handles, "resource", resource.owned(), StoredHandle::Resource(*resource)),
-        Val::Future(future) => insert_handle(handles, "future", false, StoredHandle::Future(future.clone())),
-        Val::Stream(stream) => insert_handle(handles, "stream", false, StoredHandle::Stream(stream.clone())),
-        Val::ErrorContext(_) => insert_handle(handles, "error-context", false, StoredHandle::ErrorContext(value.clone())),
+        Val::Resource(resource) => insert_handle(
+            handles,
+            "resource",
+            resource.owned(),
+            StoredHandle::Resource(*resource),
+        ),
+        Val::Future(future) => insert_handle(
+            handles,
+            "future",
+            false,
+            StoredHandle::Future(future.clone()),
+        ),
+        Val::Stream(stream) => insert_handle(
+            handles,
+            "stream",
+            false,
+            StoredHandle::Stream(stream.clone()),
+        ),
+        Val::ErrorContext(_) => insert_handle(
+            handles,
+            "error-context",
+            false,
+            StoredHandle::ErrorContext(value.clone()),
+        ),
     })
 }
 
@@ -206,17 +261,25 @@ fn array(value: &Value) -> Result<&Vec<Value>> {
 }
 
 fn number_i64(value: &Value) -> Result<i64> {
-    value.as_i64().ok_or_else(|| anyhow!("expected signed integer"))
+    value
+        .as_i64()
+        .ok_or_else(|| anyhow!("expected signed integer"))
 }
 
 fn number_u64(value: &Value) -> Result<u64> {
-    value.as_u64().ok_or_else(|| anyhow!("expected unsigned integer"))
+    value
+        .as_u64()
+        .ok_or_else(|| anyhow!("expected unsigned integer"))
 }
 
 fn single_char(value: &Value) -> Result<char> {
-    let text = value.as_str().ok_or_else(|| anyhow!("expected character string"))?;
+    let text = value
+        .as_str()
+        .ok_or_else(|| anyhow!("expected character string"))?;
     let mut chars = text.chars();
-    let result = chars.next().ok_or_else(|| anyhow!("character cannot be empty"))?;
+    let result = chars
+        .next()
+        .ok_or_else(|| anyhow!("character cannot be empty"))?;
     if chars.next().is_some() {
         bail!("expected one character")
     }

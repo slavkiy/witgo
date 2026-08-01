@@ -77,7 +77,11 @@ fn canonical_type(ty: &Type) -> String {
         Type::Char => "char".into(),
         Type::String => "string".into(),
         Type::List(list) => format!("list<{}>", canonical_type(&list.ty())),
-        Type::Map(map) => format!("map<{},{}>", canonical_type(&map.key()), canonical_type(&map.value())),
+        Type::Map(map) => format!(
+            "map<{},{}>",
+            canonical_type(&map.key()),
+            canonical_type(&map.value())
+        ),
         Type::Record(record) => format!(
             "record{{{}}}",
             record
@@ -105,18 +109,39 @@ fn canonical_type(ty: &Type) -> String {
                 .collect::<Vec<_>>()
                 .join(",")
         ),
-        Type::Enum(enum_type) => format!("enum{{{}}}", enum_type.names().collect::<Vec<_>>().join(",")),
+        Type::Enum(enum_type) => format!(
+            "enum{{{}}}",
+            enum_type.names().collect::<Vec<_>>().join(",")
+        ),
         Type::Option(option) => format!("option<{}>", canonical_type(&option.ty())),
         Type::Result(result) => format!(
             "result<{},{}>",
-            result.ok().map(|ty| canonical_type(&ty)).unwrap_or_default(),
-            result.err().map(|ty| canonical_type(&ty)).unwrap_or_default()
+            result
+                .ok()
+                .map(|ty| canonical_type(&ty))
+                .unwrap_or_default(),
+            result
+                .err()
+                .map(|ty| canonical_type(&ty))
+                .unwrap_or_default()
         ),
         Type::Flags(flags) => format!("flags{{{}}}", flags.names().collect::<Vec<_>>().join(",")),
         Type::Own(_) => "own".into(),
         Type::Borrow(_) => "borrow".into(),
-        Type::Future(future) => format!("future<{}>", future.ty().map(|ty| canonical_type(&ty)).unwrap_or_default()),
-        Type::Stream(stream) => format!("stream<{}>", stream.ty().map(|ty| canonical_type(&ty)).unwrap_or_default()),
+        Type::Future(future) => format!(
+            "future<{}>",
+            future
+                .ty()
+                .map(|ty| canonical_type(&ty))
+                .unwrap_or_default()
+        ),
+        Type::Stream(stream) => format!(
+            "stream<{}>",
+            stream
+                .ty()
+                .map(|ty| canonical_type(&ty))
+                .unwrap_or_default()
+        ),
         Type::ErrorContext => "error-context".into(),
     }
 }

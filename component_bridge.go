@@ -29,7 +29,7 @@ type componentBridge struct {
 	handleStates   map[uint64][]*handleState
 	mu             sync.Mutex
 	closed         bool
-	closing        atomic.Bool
+	closing        uint32
 	system         runtimeSystemConfig
 }
 
@@ -67,7 +67,7 @@ type runtimeSystemConfig struct {
 	perCall      bool
 }
 
-var runtimeCallSequence atomic.Uint64
+var runtimeCallSequence uint64
 
 type bridgeImportSpec struct {
 	Interface string   `json:"interface"`
@@ -576,7 +576,7 @@ func (b *componentBridge) newRuntimeFuelCallState(ctx context.Context, function 
 	depth := parent.Depth
 	path := parent.Path
 	if !ok || callID == "" {
-		callID = fmt.Sprintf("witgo-runtime-%d", runtimeCallSequence.Add(1))
+		callID = fmt.Sprintf("witgo-runtime-%d", atomic.AddUint64(&runtimeCallSequence, 1))
 		parentID = ""
 		depth = 1
 		path = []PluginCallFrame{{Plugin: b.system.pluginID, Function: function}}
@@ -669,7 +669,7 @@ func (b *componentBridge) handleFuelRequest(ctx context.Context, message bridgeM
 		request.ProviderID, request.Interface, request.Function = frame.Plugin, frame.Interface, frame.Function
 	}
 	state.requestCount++
-	if b.closing.Load() {
+	if atomic.LoadUint32(&b.closing) != 0 {
 		event := &FuelRequestEvent{Time: time.Now(), CallID: request.CallID, PluginID: request.PluginID, CallPath: append([]PluginCallFrame(nil), state.path...), Requested: amount, GuestReason: sanitizeGuestReason(reason), RemainingBefore: current, DenialReason: string(FuelDeniedRuntimeClosing)}
 		return map[string]any{"type": "host_result", "values": []any{map[string]any{"err": map[string]any{"case": string(FuelDeniedRuntimeClosing)}}}}, event
 	}
@@ -859,7 +859,7 @@ func (b *componentBridge) read() (bridgeMessage, error) {
 }
 
 func (b *componentBridge) close() error {
-	b.closing.Store(true)
+	atomic.StoreUint32(&b.closing, 1)
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.closed {

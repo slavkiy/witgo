@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"math"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -104,7 +105,7 @@ func TestRuntimeSystemFuelGrantAndClosing(t *testing.T) {
 	if response["fuel_grant"] != uint64(25) || event == nil || event.Granted != 25 || event.PluginID != "plugin-a" {
 		t.Fatalf("response=%#v event=%#v", response, event)
 	}
-	b.closing.Store(true)
+	atomic.StoreUint32(&b.closing, 1)
 	response, event = b.handleRuntimeSystemCall(context.Background(), message, &state)
 	if _, exists := response["fuel_grant"]; exists || event.DenialReason != string(FuelDeniedRuntimeClosing) {
 		t.Fatalf("closing response=%#v event=%#v", response, event)

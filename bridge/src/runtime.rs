@@ -75,7 +75,8 @@ fn validate_init(init: &Init) -> Option<Value> {
             &init.witgo_version,
             format!(
                 "incompatible bridge version: Go requires {}, bridge is {}",
-                init.bridge_version, env!("CARGO_PKG_VERSION")
+                init.bridge_version,
+                env!("CARGO_PKG_VERSION")
             ),
         ));
     }
@@ -118,8 +119,9 @@ fn load_component(init: &Init) -> Result<(Engine, Component, bool)> {
             .map_err(|error| anyhow!("load component {:?}: {error:#}", init.component))?
     } else {
         let bytes = compose_components(&init.component, &init.composition)?;
-        Component::new(&engine, bytes)
-            .map_err(|error| anyhow!("compile composed component {:?}: {error:#}", init.component))?
+        Component::new(&engine, bytes).map_err(|error| {
+            anyhow!("compile composed component {:?}: {error:#}", init.component)
+        })?
     };
     Ok((engine, component, fuel_enabled))
 }
@@ -298,7 +300,11 @@ fn handle_host_callback(
         .and_then(Value::as_array)
         .ok_or_else(|| anyhow!("host_result.values must be an array"))?;
     if values.len() != result_types.len() {
-        bail!("host returned {} results, expected {}", values.len(), result_types.len())
+        bail!(
+            "host returned {} results, expected {}",
+            values.len(),
+            result_types.len()
+        )
     }
     for ((slot, value), result_ty) in results.iter_mut().zip(values).zip(result_types) {
         *slot = json_to_val(value, &result_ty, handles)?;
@@ -323,13 +329,19 @@ async fn handle_call(
         .and_then(Value::as_array)
         .ok_or_else(|| anyhow!("call.args must be an array"))?;
     if options.fuel_per_call > 0 {
-        store.set_fuel(options.fuel_per_call).map_err(wasmtime_error)?;
+        store
+            .set_fuel(options.fuel_per_call)
+            .map_err(wasmtime_error)?;
     }
     let func = find_func(instance, store, name)?;
     let ty = func.ty(&*store);
     let param_types = ty.params().map(|(_, ty)| ty).collect::<Vec<_>>();
     if args.len() != param_types.len() {
-        bail!("function {name:?} received {} arguments, expected {}", args.len(), param_types.len())
+        bail!(
+            "function {name:?} received {} arguments, expected {}",
+            args.len(),
+            param_types.len()
+        )
     }
     let params = args
         .iter()
@@ -342,7 +354,9 @@ async fn handle_call(
         .filter_map(|(value, ty)| match ty {
             wasmtime::component::Type::Own(_)
             | wasmtime::component::Type::Future(_)
-            | wasmtime::component::Type::Stream(_) => value.get("$witgo_handle").and_then(Value::as_u64),
+            | wasmtime::component::Type::Stream(_) => {
+                value.get("$witgo_handle").and_then(Value::as_u64)
+            }
             _ => None,
         })
         .collect::<Vec<_>>();
