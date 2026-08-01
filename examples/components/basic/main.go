@@ -8,6 +8,6 @@ import (
 )
 
 func main() {
-	path, _ := filepath.Abs(filepath.Join("examples", "plugin", "component.wasm"))
+	path, _ := filepath.Abs(filepath.Join("examples", "components", "basic", "component.wasm"))
 	fmt.Println("build the WIT component and place it at:", path)
 }

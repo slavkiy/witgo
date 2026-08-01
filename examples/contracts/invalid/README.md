@@ -8,8 +8,8 @@
 ```sh
 cd cmd/witgen
 go run . \
-  -wit ../../examples/generation-errors/invalid.wit \
-  -out ../../examples/generation-errors/out \
+  -wit ../../examples/contracts/invalid/invalid.wit \
+  -out ../../examples/contracts/invalid/out \
   -lang ru
 ```
 

@@ -20,7 +20,7 @@ host-функции.
 
 ## Установка
 
-```powershell
+```sh
 go get github.com/slavkiy/witgo
 ```
 
@@ -88,7 +88,7 @@ func main() {
 
 Запустите:
 
-```powershell
+```sh
 go run generate.go
 ```
 
@@ -219,9 +219,9 @@ Component и явно закрыть через `Handle.Close`.
 
 ## Пример
 
-```powershell
-go run ./examples/generate
-go run ./examples/server
+```sh
+go run ./examples/contracts/basic
+go run ./examples/scenarios/server
 ```
 
 Ожидаемый вывод:
@@ -234,10 +234,10 @@ Author: Example Team
 Description: Resizes uploaded images and creates previews.
 ```
 
-- [WIT-контракт](examples/generate/wit/plugin.wit)
-- [Сгенерированный package](examples/generate/out/bindings.gen.go)
-- [Component plugin](examples/plugin/component.wasm)
-- [Go host](examples/server/main.go)
+- [WIT-контракт](examples/contracts/basic/wit/plugin.wit)
+- [Сгенерированный package](examples/contracts/basic/out/bindings.gen.go)
+- [Component plugin](examples/components/basic/component.wasm)
+- [Go host](examples/scenarios/server/main.go)
 
 ## Как это работает
 
@@ -255,15 +255,20 @@ feature-флагами. До запуска `start` bridge отвечает на
 
 Подробности:
 
+- [Оглавление документации](docs/README.md)
+- [Tutorial: Rust Component + Go host](docs/tutorial-rust-component.md)
 - [Архитектура runtime](docs/architecture.md)
+- [Troubleshooting](docs/troubleshooting.md)
 - [Проверка контрактов](docs/validation.md)
 - [Generated code](docs/generated-code.md)
 - [Публичный API](docs/public-api.md)
+- [Migration guide](docs/migration-guide.md)
+- [Security model](SECURITY.md)
 - [Релизный процесс](docs/releasing.md)
 - [Список изменений](CHANGELOG.md)
 
 ## Проверка
 
-```powershell
+```sh
 go test ./...
 ```

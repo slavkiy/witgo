@@ -14,7 +14,7 @@ func main() {
 	if !ok {
 		log.Fatal("cannot resolve inspect example directory")
 	}
-	pluginFile := filepath.Join(filepath.Dir(sourceFile), "..", "plugin", "component.wasm")
+	pluginFile := filepath.Join(filepath.Dir(sourceFile), "..", "..", "components", "basic", "component.wasm")
 
 	contract, err := witgo.InspectComponent(pluginFile)
 	if err != nil {

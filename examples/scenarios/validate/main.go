@@ -8,7 +8,7 @@ import (
 	"runtime"
 
 	"github.com/slavkiy/witgo"
-	contract "github.com/slavkiy/witgo/examples/generate/out"
+	contract "github.com/slavkiy/witgo/examples/contracts/basic/out"
 )
 
 func main() {
@@ -16,7 +16,7 @@ func main() {
 	if !ok {
 		log.Fatal("cannot resolve validate example directory")
 	}
-	pluginFile := filepath.Join(filepath.Dir(sourceFile), "..", "plugin", "component.wasm")
+	pluginFile := filepath.Join(filepath.Dir(sourceFile), "..", "..", "components", "basic", "component.wasm")
 
 	report, err := contract.ValidatePlugin(pluginFile)
 	if err != nil {

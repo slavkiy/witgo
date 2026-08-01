@@ -1,25 +1,23 @@
-# Пример Component-плагина
+# Базовый контракт
 
-```powershell
-go run ./examples/generate
-go run ./examples/server
+Этот каталог показывает полный путь от WIT-контракта до generated Go bindings.
+
+Запуск:
+
+```sh
+go run ./examples/contracts/basic
+go run ./examples/scenarios/server
 ```
 
-Пример показывает полный путь:
+Что здесь лежит:
 
-- WIT объявляет `host.process-string` и exported `plugin-info.metadata`;
-- generated Go package создаёт типизированный host adapter и проверки
-  контракта;
-- Component из `examples/plugin/component.wasm` вызывает Go host;
-- server получает `PluginMetadata` через `plugin.PluginInfo.Metadata()`.
+- `wit/` - исходный WIT-контракт;
+- `main.go` - generator entrypoint для `witgo.Generate`;
+- `out/bindings.gen.go` - сгенерированный Go package;
+- `examples/components/basic/component.wasm` используется runnable-сценариями.
 
-В production здесь уже можно использовать готовый
-`examples/plugin/component.wasm`, а исходный текст component лежит в
-`examples/plugin/component.wat`.
+Этот базовый контракт затем используют:
 
-Дополнительные сценарии использования лежат в соседних каталогах:
-
-- `examples/validate` показывает проверку контракта до запуска;
-- `examples/inspect` выводит imports/exports/signatures без instantiation;
-- `examples/collections` демонстрирует `map`, вложенные `list` и `variant`;
-- `examples/handles` показывает lifecycle `resource` handle.
+- `examples/scenarios/server`;
+- `examples/scenarios/validate`;
+- `examples/scenarios/inspect`.
