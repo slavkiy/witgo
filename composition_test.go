@@ -5,6 +5,7 @@ package witgo
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -45,6 +46,21 @@ func TestHostRegisterResolveAndAutoBind(t *testing.T) {
 	}
 	if _, err := host.AutoResolveProvider(testCodecDescriptor); !errors.Is(err, ErrPluginAlreadyRegistered) {
 		t.Fatalf("ambiguous auto-bind = %v", err)
+	}
+}
+
+func TestProviderPanicIsSanitized(t *testing.T) {
+	host, _ := NewHost()
+	defer host.Close()
+	handle, err := host.RegisterProvider("panic", testCodecDescriptor, func(context.Context, string, []any) (any, error) {
+		panic("secret implementation detail")
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = handle.CallContext(context.Background(), "consumer", "decode")
+	if err == nil || strings.Contains(err.Error(), "secret implementation detail") {
+		t.Fatalf("panic was not sanitized: %v", err)
 	}
 }
 

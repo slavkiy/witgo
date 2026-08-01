@@ -77,9 +77,16 @@ type bridgeImportSpec struct {
 var runtimeSystemFunctions = []string{"call-info", "fuel-info", "is-cancelled", "limits", "request-additional-fuel"}
 
 func runtimeSystemConfigFor(options RuntimeOptions) runtimeSystemConfig {
+	maxMessage := options.MaxResultBytes
+	if options.ValueLimits.MaxArgumentBytes > maxMessage {
+		maxMessage = options.ValueLimits.MaxArgumentBytes
+	}
+	if options.ValueLimits.MaxResultBytes > maxMessage {
+		maxMessage = options.ValueLimits.MaxResultBytes
+	}
 	configured := runtimeSystemConfig{
 		enabled: options.EnableRuntimeAPI, pluginID: strings.TrimSpace(options.PluginID),
-		maxCallDepth: 32, memoryLimit: options.MemoryLimitBytes, maxMessage: options.MaxResultBytes,
+		maxCallDepth: 32, memoryLimit: options.MemoryLimitBytes, maxMessage: maxMessage,
 		policy: options.FuelRequestPolicy, limits: options.FuelRequestLimits, observer: options.SecurityObserver,
 		initialFuel: options.Fuel, perCall: options.FuelPerCall > 0,
 	}
@@ -108,6 +115,9 @@ func prepareHostImports(imports []HostImport) (map[string]HostFuncContext, []str
 	for _, item := range imports {
 		if item.Interface == "" || item.Function == "" || (item.Call == nil && item.CallContext == nil) {
 			return nil, nil, nil, errors.New("host import interface, function, and Call or CallContext are required")
+		}
+		if strings.HasPrefix(item.Interface, "witgo:runtime/runtime@") {
+			return nil, nil, nil, errors.New("witgo runtime system interfaces are reserved and cannot be supplied by application code")
 		}
 		key := item.Interface + "#" + item.Function
 		if _, exists := registered[key]; exists {
@@ -150,7 +160,7 @@ func pingComponentBridge(ctx context.Context, component string, options RuntimeO
 	system := runtimeSystemConfigFor(options)
 	if system.enabled {
 		for key := range registered {
-			if strings.HasPrefix(key, RuntimeSystemInterfaceID+"#") {
+			if strings.HasPrefix(key, "witgo:runtime/runtime@") {
 				_ = native.close()
 				return nil, bridgeMessage{}, nil, errors.New("runtime system imports are reserved and cannot be overridden")
 			}
@@ -163,7 +173,9 @@ func pingComponentBridge(ctx context.Context, component string, options RuntimeO
 		sort.Strings(registeredNames)
 	}
 	valueLimits := options.ValueLimits
-	if valueLimits.MaxResultBytes == 0 { valueLimits.MaxResultBytes = options.MaxResultBytes }
+	if valueLimits.MaxResultBytes == 0 {
+		valueLimits.MaxResultBytes = options.MaxResultBytes
+	}
 	b := &componentBridge{native: native, imports: registered, maxResultBytes: valueLimits.MaxResultBytes, valueLimits: valueLimits, system: system}
 	clientVersion := witgoVersion()
 	init := map[string]any{
@@ -484,7 +496,9 @@ func (b *componentBridge) call(ctx context.Context, name string, args []any) ([]
 	if args == nil {
 		args = []any{}
 	}
-	if err := validateArguments(args, b.valueLimits); err != nil { return nil, err }
+	if err := validateArguments(args, b.valueLimits); err != nil {
+		return nil, err
+	}
 	callState := b.newRuntimeFuelCallState(ctx, name)
 	if err := b.write(map[string]any{"type": "call", "name": name, "args": args}); err != nil {
 		return nil, err
@@ -543,9 +557,9 @@ func (b *componentBridge) call(ctx context.Context, name string, args []any) ([]
 			if !ok {
 				return nil, errors.New("component bridge result values are not an array")
 			}
-			resultLimits := b.valueLimits
-			resultLimits.MaxArgumentBytes = 0
-			if err := validateArguments(bound, resultLimits); err != nil { return nil, err }
+			if err := validateResults(bound, b.valueLimits); err != nil {
+				return nil, err
+			}
 			return bound, nil
 		case "error", "fatal":
 			return nil, messageError(message)
@@ -610,7 +624,11 @@ func (b *componentBridge) handleRuntimeSystemCall(ctx context.Context, message b
 	case "limits":
 		maxDepth := uint32(0)
 		if b.system.maxCallDepth > 0 {
-			maxDepth = uint32(b.system.maxCallDepth)
+			if uint64(b.system.maxCallDepth) > uint64(^uint32(0)) {
+				maxDepth = ^uint32(0)
+			} else {
+				maxDepth = uint32(b.system.maxCallDepth)
+			}
 		}
 		remainingDepth := uint32(0)
 		if maxDepth > state.info.Depth {

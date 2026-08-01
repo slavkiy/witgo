@@ -404,8 +404,7 @@ fn run_protocol(protocol: Arc<Mutex<Protocol>>) -> Result<()> {
                     handle_host_callback(
                         store,
                         &protocol,
-                        &interface_name,
-                        &function_name,
+                        (&interface_name, &function_name),
                         &ty,
                         params,
                         results,
@@ -496,13 +495,13 @@ fn run_protocol(protocol: Arc<Mutex<Protocol>>) -> Result<()> {
 fn handle_host_callback(
     mut store: StoreContextMut<'_, State>,
     protocol: &Arc<Mutex<Protocol>>,
-    interface: &str,
-    function: &str,
+    names: (&str, &str),
     ty: &ComponentFunc,
     params: &[Val],
     results: &mut [Val],
     handles: &Arc<Mutex<HandleTable>>,
 ) -> Result<()> {
+    let (interface, function) = names;
     let args = params
         .iter()
         .map(|value| val_to_json(value, handles))

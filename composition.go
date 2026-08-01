@@ -193,6 +193,9 @@ func NewHost(options ...HostOptions) (*Host, error) {
 	if configured.MaxCallDepth < 0 || configured.CallTimeout < 0 {
 		return nil, errors.New("HostOptions limits cannot be negative")
 	}
+	if configured.FuelRequestLimits.MinRemainingTime < 0 || configured.FuelRequestLimits.PolicyTimeout < 0 || configured.FuelRequestLimits.MaxReasonBytes < 0 {
+		return nil, errors.New("HostOptions fuel request limits cannot be negative")
+	}
 	return &Host{options: configured, byID: make(map[string]map[string]*ProviderHandle)}, nil
 }
 
@@ -402,7 +405,7 @@ func (p *ProviderHandle) CallContext(ctx context.Context, consumer, function str
 	defer cancel()
 	p.host.observeStart(event)
 	started := event.Started
-	result, callErr := p.call(ctx, function, args)
+	result, callErr := callProviderSafely(p.call, ctx, function, args)
 	if callErr == nil && containsRuntimeHandle(result) {
 		callErr = ErrCrossRuntimeHandle
 	}
@@ -412,6 +415,16 @@ func (p *ProviderHandle) CallContext(ctx context.Context, consumer, function str
 		return nil, &PluginCallError{Consumer: consumer, Provider: p.name, Frame: event.Path[len(event.Path)-1], Path: event.Path, Cause: callErr}
 	}
 	return result, nil
+}
+
+func callProviderSafely(call ProviderCall, ctx context.Context, function string, args []any) (result any, err error) {
+	defer func() {
+		if recover() != nil {
+			result = nil
+			err = errors.New("plugin provider failed")
+		}
+	}()
+	return call(ctx, function, args)
 }
 
 func (p *ProviderHandle) acquire() error {
@@ -480,7 +493,11 @@ func (h *Host) beginCall(ctx context.Context, consumer, provider, interfaceID, f
 	if h.options.MaxCallDepth > 0 && depth > h.options.MaxCallDepth {
 		return ctx, func() {}, PluginCallEvent{}, ErrPluginCallDepthExceeded
 	}
-	callID := fmt.Sprintf("witgo-%d", atomic.AddUint64(&h.nextID, 1))
+	sequence, err := nextCallSequence(&h.nextID)
+	if err != nil {
+		return ctx, func() {}, PluginCallEvent{}, err
+	}
+	callID := fmt.Sprintf("witgo-%d", sequence)
 	state := PluginCallContext{ID: callID, ParentID: parent.ID, Depth: depth, Path: append(parent.Path, frame)}
 	var cancel context.CancelFunc = func() {}
 	if h.options.CallTimeout > 0 {
@@ -492,6 +509,18 @@ func (h *Host) beginCall(ctx context.Context, consumer, provider, interfaceID, f
 	ctx = context.WithValue(ctx, pluginCallContextKey{}, state)
 	event := PluginCallEvent{CallID: callID, ParentCallID: parent.ID, Depth: depth, Consumer: consumer, Provider: provider, Interface: interfaceID, Function: function, Path: append([]PluginCallFrame(nil), state.Path...), Started: time.Now()}
 	return ctx, cancel, event, nil
+}
+
+func nextCallSequence(counter *uint64) (uint64, error) {
+	for {
+		current := atomic.LoadUint64(counter)
+		if current == ^uint64(0) {
+			return 0, errors.New("plugin call identifier space exhausted")
+		}
+		if atomic.CompareAndSwapUint64(counter, current, current+1) {
+			return current + 1, nil
+		}
+	}
 }
 
 func (h *Host) enterRuntimeCall(ctx context.Context, runtimeID, function string) (context.Context, context.CancelFunc, error) {

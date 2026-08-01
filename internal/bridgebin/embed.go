@@ -12,15 +12,29 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sync"
 )
 
 var ErrUnavailable = errors.New("embedded component bridge is unavailable for this platform")
 var ErrIntegrity = errors.New("embedded component bridge failed integrity verification")
 
+var (
+	libraryOnce sync.Once
+	libraryPath string
+	libraryErr  error
+)
+
 // Library materializes the embedded shared library in the user's cache directory.
 // The filename includes a content hash, so upgrades and concurrent processes
 // do not overwrite a loaded library.
 func Library() (string, error) {
+	libraryOnce.Do(func() {
+		libraryPath, libraryErr = installEmbeddedLibrary()
+	})
+	return libraryPath, libraryErr
+}
+
+func installEmbeddedLibrary() (string, error) {
 	compressed := compressedBridge
 	if len(compressed) == 0 {
 		return "", fmt.Errorf("%w: %s/%s", ErrUnavailable, runtime.GOOS, runtime.GOARCH)

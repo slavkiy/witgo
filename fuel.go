@@ -58,6 +58,8 @@ func (r *Runtime) FuelRemaining() (uint64, error) {
 	return fuel, nil
 }
 
+// SetFuel replaces fuel in the current Store. This is an unsafe host-only
+// administrative operation. Never expose it directly to untrusted guest code.
 func (r *Runtime) SetFuel(fuel uint64) error {
 	if r == nil || r.bridge == nil {
 		return errors.New("component runtime is not initialized")

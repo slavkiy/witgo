@@ -457,3 +457,41 @@ func parseGenerated(t *testing.T, filename string, source []byte) {
 		t.Fatalf("parse generated Go: %v", err)
 	}
 }
+
+func TestRuntimeSystemFacadeIsExplicitOptIn(t *testing.T) {
+	contract := `package test:runtime@1.0.0;
+interface api { run: func(); }
+world plugin { export api; }`
+	generate := func(enabled bool) string {
+		t.Helper()
+		witDir, outputDir := t.TempDir(), t.TempDir()
+		if err := os.WriteFile(filepath.Join(witDir, "runtime.wit"), []byte(contract), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := Generate(Config{WIT: witDir, Output: outputDir, EnableRuntimeAPI: enabled}); err != nil {
+			t.Fatal(err)
+		}
+		source, err := os.ReadFile(filepath.Join(outputDir, DefaultFilename))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(source)
+	}
+	plain := generate(false)
+	if strings.Contains(plain, "type RuntimeSystem interface") || strings.Contains(plain, "UnsafeRequestAdditionalFuel") {
+		t.Fatal("runtime system facade appeared without opt-in")
+	}
+	enabled := generate(true)
+	for _, expected := range []string{
+		"type RuntimeSystem interface",
+		"CallInfo() (witgo.RuntimeCallInfo, error)",
+		"UnsafeRequestAdditionalFuel(amount uint64, reason string) (witgo.FuelGrant, error)",
+		"type System struct",
+		"_witgoOptions.EnableRuntimeAPI = true",
+		"vendor capability witgo:runtime/runtime@1.0.0",
+	} {
+		if !strings.Contains(enabled, expected) {
+			t.Errorf("opt-in source does not contain %q", expected)
+		}
+	}
+}

@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"strings"
 	"time"
+	"unicode"
 
 	ipath "github.com/slavkiy/witgo/internal/path"
 	iwasm "github.com/slavkiy/witgo/internal/wasm"
@@ -453,6 +455,12 @@ func validateRuntimeOptions(options RuntimeOptions) error {
 	if options.InstanceLimit < 0 {
 		return errors.New("RuntimeOptions.InstanceLimit cannot be negative")
 	}
+	if err := validatePluginID(options.PluginID); err != nil {
+		return err
+	}
+	if options.FuelRequestLimits.MinRemainingTime < 0 || options.FuelRequestLimits.PolicyTimeout < 0 || options.FuelRequestLimits.MaxReasonBytes < 0 {
+		return errors.New("RuntimeOptions fuel request limits cannot be negative")
+	}
 	if options.NestedPlugins.MaxCandidates < 0 {
 		return errors.New("RuntimeOptions.NestedPlugins.MaxCandidates cannot be negative")
 	}
@@ -464,6 +472,25 @@ func validateRuntimeOptions(options RuntimeOptions) error {
 			if !((char >= '0' && char <= '9') || (char >= 'a' && char <= 'f') || (char >= 'A' && char <= 'F')) {
 				return errors.New("RuntimeOptions.BridgeSHA256 must be hexadecimal")
 			}
+		}
+	}
+	return nil
+}
+
+func validatePluginID(id string) error {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return nil
+	}
+	if len(id) > 128 {
+		return errors.New("RuntimeOptions.PluginID exceeds 128 bytes")
+	}
+	if strings.ContainsAny(id, `/\\`) {
+		return errors.New("RuntimeOptions.PluginID must be a logical name, not a path")
+	}
+	for _, char := range id {
+		if unicode.IsControl(char) {
+			return errors.New("RuntimeOptions.PluginID cannot contain control characters")
 		}
 	}
 	return nil

@@ -184,7 +184,7 @@ func (e *FuelRequestError) Is(target error) bool {
 	if e == nil {
 		return false
 	}
-	return target == ErrFuelRequestDenied || target == e.Cause
+	return target == ErrFuelRequestDenied || errors.Is(e.Cause, target)
 }
 
 type RuntimeLimitError struct {
@@ -207,7 +207,7 @@ func (e *RuntimeLimitError) Unwrap() error {
 	return e.Cause
 }
 func (e *RuntimeLimitError) Is(target error) bool {
-	return e != nil && (target == e.Cause || target == ErrArgumentTooLarge && e.Cause == ErrArgumentTooLarge || target == ErrValueDepthExceeded && e.Cause == ErrValueDepthExceeded)
+	return e != nil && errors.Is(e.Cause, target)
 }
 
 type FuelRequestEvent struct {
