@@ -1,6 +1,6 @@
-# Generated Go code
+# Сгенерированный Go-код
 
-WIT world превращается в Go client с typed imports и exports.
+WIT `world` превращается в Go client с типизированными imports и exports.
 
 ```wit
 interface host {
@@ -47,14 +47,15 @@ func OpenPluginWithOptions(filename string, options witgo.RuntimeOptions, import
 func (p *Plugin) Close() error
 ```
 
-`PluginPing` is generated from the WIT world and contains sorted host import
-and plugin export function names. Opening a plugin asks the bridge for the
-component's actual function manifest and rejects missing or unexpected names.
-Using one imports struct keeps constructor signatures stable as large contracts
-gain more host interfaces.
+`PluginPing` генерируется из WIT `world` и содержит отсортированный manifest
+host import и plugin export функций. При открытии плагина bridge сначала
+возвращает фактический manifest компонента, а bindings отклоняют missing или
+unexpected функции ещё до запуска guest-кода.
 
-Validation is read-only and does not instantiate the component or execute guest
-code:
+Использование одного imports-struct держит сигнатуры конструкторов стабильными
+даже у очень больших контрактов.
+
+Validation работает только на чтение и не instantiate-ит component:
 
 ```go
 report, err := contract.ValidatePlugin("./plugin.wasm")
@@ -66,14 +67,12 @@ if !report.Compatible {
 }
 ```
 
-`report.Imports` and `report.Exports` contain separate `Missing` and
-`Unexpected` function lists. `report.Signatures` contains structural parameter
-or result type mismatches, including nested records, lists, options, results,
-tuples, enums, flags and variants. Fully qualified interface names include WIT
-package versions, so a version mismatch is visible in the same report.
+`report.Imports` и `report.Exports` содержат отдельные списки `Missing` и
+`Unexpected`. `report.Signatures` содержит структурные несовпадения параметров
+или результатов, включая вложенные records, lists, options, results, tuples,
+maps, enums, flags и variants.
 
-For startup code that only needs success or failure, `CheckPlugin` converts an
-incompatible report to `*witgo.ContractValidationError`:
+Для startup-кода, где нужен только success/failure, удобен `CheckPlugin`:
 
 ```go
 if err := contract.CheckPlugin("./plugin.wasm"); err != nil {
@@ -87,41 +86,43 @@ if err := contract.CheckPlugin("./plugin.wasm"); err != nil {
 }
 ```
 
-## Composite value representation
+## Представление сложных значений
 
-- WIT `char`, `option`, `result` and tuples use `witgo.Char`, `Option`,
-  `Result`, typed `Tuple0...Tuple16`, and flexible `Tuple` with strict codecs.
-- WIT maps use `witgo.Map[K,V]` and the Component Model pair-array wire form.
-- WIT enums are named Go string types with `Parse`, `Valid`, `String` and
-  values-list helpers.
-- WIT flags remain named `uint64` bit sets and add `Parse`, `Valid`, `Has`,
-  `Add`, `Remove` and `Names` helpers.
-- WIT variants implement strict `{case,value}` encoding and generate a
-  constructor, predicate and safe accessor for each case.
-- Nested lists retain their ordinary recursive Go slice shape.
+- WIT `char`, `option`, `result` и tuples используют `witgo.Char`,
+  `witgo.Option`, `witgo.Result`, типизированные `Tuple0...Tuple16` и
+  динамический `Tuple` со строгим codec.
+- WIT maps используют `witgo.Map[K,V]` и pair-array wire form из Component
+  Model ABI.
+- WIT enums генерируются как именованные Go string-типы с helper-функциями
+  `Parse`, `Valid`, `String` и `<Type>Values`.
+- WIT flags остаются именованными `uint64` bitset и получают `Parse`, `Valid`,
+  `Has`, `Add`, `Remove` и `Names`.
+- WIT variants используют строгую форму `{case,value}` и получают constructor,
+  predicate и безопасный accessor для каждого case.
+- Вложенные lists сохраняют обычную рекурсивную форму `[]T`.
 
-Resources, `future<T>`, `stream<T>` and `error-context` are represented by
-`witgo.Handle`. A returned handle remains attached to its originating Runtime,
-can be passed back into that Runtime, and has an idempotent `Close` method.
-Resource ownership is enforced by the bridge. Future/stream payload reading
-and writing are not generated yet; their current API is opaque transport and
-lifecycle management.
+`resource`, `future<T>`, `stream<T>` и `error-context` представлены через
+`witgo.Handle`. Возвращённый handle остаётся привязан к породившему его
+`Runtime`, может быть передан обратно в тот же runtime и имеет идемпотентный
+`Close`. Bridge проверяет корректность ownership. Для `future` и `stream`
+высокоуровневое чтение/запись typed payload пока не генерируется.
 
-Export вызывается удобно и соответствует владельцу из WIT:
+Экспорт вызывается обычным типизированным методом:
 
 ```go
 info, err := plugin.Metadata.Get()
 ```
 
 Generated constructor создаёт `witgo.HostImport` adapters до instantiation.
-Adapter проверяет число аргументов, поднимает каждое значение в Go type и
-вызывает реализацию `Host`. Nil import отклоняется сразу.
+Adapter проверяет число аргументов, поднимает каждое значение в Go-тип и
+вызывает реализацию `Host`. `nil` import отклоняется сразу.
 
-Records передаются по Canonical ABI движком Wasmtime. Внутренний JSON-канал
-между Go и bridge является implementation detail и не задаёт ABI плагина.
+Records и остальные составные типы передаются по Canonical ABI движком
+Wasmtime. Внутренний JSON-канал между Go и bridge остаётся implementation
+detail и не задаёт ABI плагина.
 
-Ошибки export call возвращаются напрямую. Ошибка преобразования результата
-оборачивается с полным WIT именем функции.
+Ошибки export-вызова возвращаются напрямую. Ошибка преобразования результата
+оборачивается с полным WIT-именем функции.
 
-Generated package рассчитан на Go 1.18+. Файл рекомендуется хранить в Git,
-чтобы изменения публичного API были видны в review.
+Generated package рассчитан на Go 1.18+. Файл имеет смысл хранить в Git, чтобы
+изменения публичного API были видны в review.

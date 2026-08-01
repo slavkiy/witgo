@@ -1,7 +1,7 @@
-# Contract validation
+# Проверка контракта
 
-Generated packages validate a WebAssembly Component before it is added to a
-pool or exposed to application traffic:
+Generated packages умеют проверять WebAssembly Component до того, как он попадёт
+в production-путь приложения:
 
 ```go
 report, err := contract.ValidatePlugin("./plugin.wasm")
@@ -13,27 +13,27 @@ if err := report.Err(); err != nil {
 }
 ```
 
-Inspection loads and parses the Component but stops at the bridge `pong`. It
-does not instantiate the Component, link application host callbacks, run a
-start function, or invoke guest code.
+Inspection загружает и разбирает Component, но останавливается на bridge
+`pong`. Она не instantiate-ит Component, не линкует host callbacks, не
+выполняет `start` и не вызывает guest code.
 
-## What is compared
+## Что сравнивается
 
-The generated contract and actual Component manifest contain:
+Generated contract и фактический Component manifest содержат:
 
-- fully qualified import function names;
-- fully qualified export function names;
-- package and interface versions as part of those names;
-- deterministic structural parameter and result signatures.
+- полные имена import-функций;
+- полные имена export-функций;
+- версии package и interface как часть этих имён;
+- детерминированные structural signatures параметров и результатов.
 
-Signatures recursively describe primitives, records, lists, tuples, options,
-results, variants, enums and flags. A plugin cannot pass merely by exporting a
-function with the correct name and a different ABI.
+Signatures рекурсивно описывают primitive types, records, lists, maps, tuples,
+options, results, variants, enums и flags. Плагин не может пройти проверку
+только за счёт правильного имени функции при другом ABI.
 
-Resource ownership appears in signatures as `own` or `borrow`, allowing ABI
-validation without constructing a resource or executing guest code.
+Resource ownership появляется в сигнатурах как `own` или `borrow`, поэтому ABI
+можно проверить без создания resource и без выполнения guest-кода.
 
-## Detailed reports
+## Подробный отчёт
 
 ```go
 if !report.Compatible {
@@ -48,14 +48,14 @@ if !report.Compatible {
 }
 ```
 
-`ValidatePlugin` reserves its second return value for operational errors such
-as an unreadable file, invalid Wasm, or an incompatible native bridge. Contract
-incompatibility is represented by a successful report with `Compatible ==
-false`.
+`ValidatePlugin` использует второй return value только для операционных ошибок:
+нечитаемый файл, невалидный Wasm, несовместимый bridge и тому подобное.
+Контрактная несовместимость возвращается как успешный `ValidationReport` с
+`Compatible == false`.
 
-## Error-only startup checks
+## Проверка только на успех/ошибку
 
-Generated `CheckPlugin` is convenient for command startup paths:
+Generated `CheckPlugin` удобен для startup-кода:
 
 ```go
 if err := contract.CheckPlugin(path); err != nil {
@@ -69,24 +69,24 @@ if err := contract.CheckPlugin(path); err != nil {
 }
 ```
 
-`ValidationReport.Err()` and `witgo.RequireCompatible(report)` provide the same
-conversion when the detailed API is used directly.
+`ValidationReport.Err()` и `witgo.RequireCompatible(report)` дают тот же
+переход к `error`, если работаете напрямую с low-level API.
 
-## In-memory components
+## Компоненты в памяти
 
-Applications receiving Components from an existing trusted storage layer do
-not need to create their own temporary file:
+Если приложение получает Component из уже доверенного storage layer, можно не
+создавать собственный временный файл:
 
 ```go
 report, err := witgo.ValidateComponentBytes(componentBytes, contract.PluginPing())
 ```
 
-The library creates a private temporary component file because Wasmtime loads
-Components by path, removes it after inspection, and never instantiates it.
+Библиотека сама создаст приватный временный component-файл, потому что
+Wasmtime загружает Components по пути, а затем удалит его после inspection.
 
-## Inspecting capabilities
+## Инспекция возможностей
 
-The raw manifest is useful before a capability policy is introduced:
+Raw manifest полезен ещё до появления capability policy:
 
 ```go
 manifest, err := witgo.InspectComponent(path)
@@ -98,10 +98,10 @@ for _, required := range manifest.ImportNames() {
 }
 ```
 
-Use `ImportNames`, `ExportNames`, and `FunctionNames` instead of mutating the
-slices in `Contract`; the accessor methods return sorted copies.
+Используйте `ImportNames`, `ExportNames` и `FunctionNames`, а не прямую мутацию
+полей `Contract`: accessor-методы возвращают отсортированные копии.
 
-Two cached or remotely supplied manifests can be compared without opening the
+Два cached или удалённо полученных manifest можно сравнить и без открытия
 bridge:
 
 ```go

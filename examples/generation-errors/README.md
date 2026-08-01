@@ -1,9 +1,9 @@
-# Generation diagnostics
+# Диагностика генерации
 
-This directory contains an intentionally invalid WIT contract for checking
-generation errors rendered by the optional `witgen` CLI.
+В этом каталоге лежит заведомо невалидный WIT-контракт для проверки ошибок
+генерации, которые рендерит необязательный CLI `witgen`.
 
-From the repository root:
+Из корня репозитория:
 
 ```sh
 cd cmd/witgen
@@ -13,5 +13,5 @@ go run . \
   -lang ru
 ```
 
-The command must fail with a localized `GenerationFailed` diagnostic. No output
-package is generated.
+Команда должна завершиться с локализованной диагностикой `GenerationFailed`.
+Выходной package при этом не создаётся.

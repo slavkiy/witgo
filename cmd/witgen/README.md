@@ -1,7 +1,8 @@
 # witgen
 
-`witgen` is an optional generation-only CLI. It renders deterministic English
-and Russian diagnostics locally and has no dependency besides `witgo`.
+`witgen` — необязательный generation-only CLI. Он рендерит детерминированные
+диагностики локально, умеет русский и английский язык сообщений и не имеет
+зависимостей, кроме `witgo`.
 
 ```sh
 cd cmd/witgen
@@ -13,12 +14,12 @@ witgen \
   -lang ru
 ```
 
-Flags:
+Флаги:
 
-- `-wit`: WIT file or directory;
-- `-out`: output directory;
-- `-package`: optional Go package override;
-- `-filename`: optional generated filename;
-- `-lang`: diagnostic language; defaults to `LANG`.
+- `-wit`: WIT-файл или каталог;
+- `-out`: каталог для output;
+- `-package`: необязательное переопределение имени Go package;
+- `-filename`: необязательное имя generated файла;
+- `-lang`: язык диагностики; по умолчанию берётся из `LANG`.
 
-The CLI, `witgo` library, and generated code support Go 1.18 and newer.
+CLI, библиотека `witgo` и generated code поддерживают Go 1.18 и новее.

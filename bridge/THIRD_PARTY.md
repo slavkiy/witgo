@@ -1,6 +1,8 @@
-# Third-party software
+# Стороннее ПО
 
-The embedded `witgo_bridge` shared library includes Wasmtime and its Rust
-dependencies. Wasmtime 47.0.2 is distributed under
-`Apache-2.0 WITH LLVM-exception`. Exact dependency versions are recorded in
-`Cargo.lock`; release artifacts should retain the corresponding license notices.
+Встроенная shared library `witgo_bridge` включает Wasmtime и его Rust-зависимости.
+Wasmtime `47.0.2` распространяется по лицензии
+`Apache-2.0 WITH LLVM-exception`.
+
+Точные версии зависимостей зафиксированы в `Cargo.lock`. Релизные артефакты
+должны сохранять соответствующие license notices.

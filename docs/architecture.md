@@ -1,65 +1,90 @@
-# Runtime architecture
+# Архитектура runtime
 
-`witgo` runs WebAssembly Components in-process through a bundled Wasmtime
-shared library. There is no child executable, stdin/stdout IPC, network
-download, or separate runtime installation.
+`witgo` запускает WebAssembly Components in-process через встроенную Wasmtime
+shared library. Нет отдельного процесса, нет stdin/stdout IPC, нет сетевой
+загрузки runtime и нет обязательной внешней установки.
 
-The Go package embeds one gzip-compressed library per supported target:
+Go package встраивает по одной gzip-сжатой библиотеке на каждую поддерживаемую
+платформу:
 
-- Windows amd64/arm64: `witgo_bridge.dll`;
-- Linux amd64/arm64: `libwitgo_bridge.so`;
-- macOS amd64/arm64: `libwitgo_bridge.dylib`.
+- Windows `amd64`/`arm64`: `witgo_bridge.dll`;
+- Linux `amd64`/`arm64`: `libwitgo_bridge.so`;
+- macOS `amd64`/`arm64`: `libwitgo_bridge.dylib`.
 
-On first use the current platform library is decompressed into the user cache.
-Operating systems cannot load a DLL/shared object directly from a Go byte
-slice, so a cache file is unavoidable. Its filename contains the content hash,
-installation is atomic, and the compiled-in SHA-256 is checked both before
-installation and on every cache hit. No new process is started.
+При первом использовании библиотека распаковывается в пользовательский cache.
+ОС не умеют загружать DLL/shared object прямо из Go byte slice, поэтому cache
+файл здесь неизбежен. Имя файла включает content hash, установка выполняется
+атомарно, а встроенный SHA-256 проверяется и перед записью, и на каждом cache
+hit.
 
-`BridgePath` (or `WITGO_COMPONENT_LIBRARY`) can select an administrator-managed
-library; `BridgeSHA256` pins it. `DisableEmbeddedBridge` forbids materializing
-the bundled copy.
+`BridgePath` или `WITGO_COMPONENT_LIBRARY` позволяют выбрать внешнюю
+администраторскую библиотеку, `BridgeSHA256` закрепляет её по хэшу.
+`DisableEmbeddedBridge` запрещает использовать встроенную копию.
 
-## In-process protocol
+## Внутрипроцессный протокол
 
-Go calls a small stable C ABI through `purego` (no CGO). Inside Rust, the
-existing JSON value protocol travels over in-memory channels. Initialization
-performs a strict version and feature handshake containing `protocol_version`,
-`witgo_version`, `bridge_version`, `wasmtime_version`, and `features`. Before
-instantiation, the bridge answers a contract `ping` with sorted component
-import/export function names; generated Go bindings compare these names with
-both the WIT manifest and registered host adapters before sending `start`.
-The Go side sends its required bridge version and feature set in `init`; Rust
-rejects either mismatch, while Go independently validates the versions and
-features returned in `pong`. There is no compatibility fallback.
+Go вызывает небольшой стабильный C ABI через `purego`, без CGO. Внутри Rust
+остаётся существующий JSON value protocol поверх in-memory каналов.
 
-Calls on a Runtime are serialized; separate Runtime values may execute
-concurrently. `Close` drops the Wasmtime state, joins its internal worker
-thread, unloads the library when possible, and is idempotent. Wasm execution
-timeouts use Wasmtime epoch interruption. An arbitrary deadlock inside native
-library code cannot safely be killed without
-terminating the Go process; this is the tradeoff for in-process execution.
+Инициализация выполняет строгий handshake, который включает:
 
-## Supported values
+- `protocol_version`;
+- `witgo_version`;
+- `bridge_version`;
+- `wasmtime_version`;
+- список обязательных `features`.
 
-The codec implements booleans, all WIT integers and floats, `char`, strings,
-lists, maps, records, tuples, variants, enums, options, results and flags.
-Resources, futures, streams and `error-context` use opaque runtime-bound handle
-tokens. The bridge retains the corresponding Wasmtime value, validates its
-kind and Store, transfers `own` values, preserves `borrow` values for the call,
-and explicitly drops/closes retained handles.
+До instantiation bridge отвечает на contract `ping` отсортированными именами
+component imports/exports. Generated Go bindings сравнивают этот manifest с WIT
+контрактом и набором зарегистрированных host adapters ещё до отправки `start`.
 
-Resource types are also included in the pre-instantiation contract manifest.
-The dynamic API can pass future/stream handles between calls and close them,
-but it cannot read or write an arbitrary typed payload. Payload consumption
-requires generated Rust specialization because Wasmtime's type-erased
-`FutureAny` and `StreamAny` only expose conversion to statically typed readers.
+Go передаёт в `init` требуемую bridge-версию и обязательные feature-флаги. Rust
+отклоняет любое несовпадение, а Go независимо перепроверяет значения,
+возвращённые в `pong`. Режима совместимости или fallback нет.
 
-## Security boundary
+Вызовы внутри одного `Runtime` сериализуются. Разные `Runtime` можно выполнять
+параллельно. `Close` освобождает состояние Wasmtime, дожидается worker thread,
+по возможности выгружает библиотеку и остаётся идемпотентным. Timeout для Wasm
+основан на Wasmtime epoch interruption. Если зависание произошло внутри
+доверенного native-кода, безопасно остановить его без завершения процесса
+нельзя, это осознанный trade-off in-process модели.
 
-The shared library remains native trusted code. Release preparation builds all
-six libraries from `Cargo.lock`, tests each library through Go, publishes raw
-and compressed SHA-256 checksums, SPDX SBOMs and GitHub attestations, then
-commits the exact compressed libraries into module source before a tag can be
-created. Windows Authenticode and Apple signing/notarization remain required
-production gates for minimizing antivirus false positives.
+## Поддерживаемые значения
+
+Codec покрывает:
+
+- `bool`;
+- все WIT integer и float типы;
+- `char`;
+- `string`;
+- `list`;
+- `map`;
+- `record`;
+- `tuple`;
+- `variant`;
+- `enum`;
+- `option`;
+- `result`;
+- `flags`.
+
+`resource`, `future`, `stream` и `error-context` представлены непрозрачными
+runtime-bound handle-токенами. Bridge удерживает соответствующее Wasmtime
+значение, проверяет его kind и Store, переносит `own`, сохраняет `borrow` на
+время вызова и явно дропает удержанные handle.
+
+Resource-типы входят и в pre-instantiation contract manifest. Dynamic API умеет
+передавать `future`/`stream` handles между вызовами и закрывать их, но пока не
+умеет читать или писать произвольный типизированный payload. Для этого нужна
+generated Rust specialization, потому что type-erased `FutureAny` и `StreamAny`
+из Wasmtime открывают reader/writer только для статически известных типов.
+
+## Граница безопасности
+
+Shared library остаётся доверенным native-кодом. Релизный процесс собирает все
+шесть библиотек из `Cargo.lock`, тестирует каждую через Go, публикует raw и
+compressed SHA-256 checksums, SPDX SBOM и GitHub build attestations, а затем
+фиксирует точные compressed libraries в исходниках модуля перед созданием тега.
+
+Для production-дистрибуции по-прежнему важны Windows Authenticode и Apple
+signing/notarization, чтобы уменьшать ложные срабатывания антивирусов и
+поддерживать привычную цепочку доверия.

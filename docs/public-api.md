@@ -1,7 +1,7 @@
-# Public API
+# Публичный API
 
 Сводная таблица поддерживаемых WIT-конструкций и runtime-ограничений находится
-в [«Возможности и ограничения»](capabilities.md).
+в [docs/capabilities.md](capabilities.md).
 
 ## Runtime
 
@@ -31,21 +31,19 @@ func RequireCompatible(report ValidationReport) error
 func CompareContracts(expected, actual Contract) (ValidationReport, error)
 ```
 
-Generated bindings use `LoadRuntimeWithContract`. The runtime performs a
-versioned `ping`/`pong` handshake with the native bridge and compares sorted
-function names before allowing calls. A mismatch wraps
-`ErrBridgeProtocolMismatch`, `ErrBridgeVersionMismatch`, or
-`ErrContractMismatch`, so callers can use `errors.Is`.
+Generated bindings используют `LoadRuntimeWithContract`. Runtime выполняет
+versioned `ping`/`pong` handshake с native bridge и сравнивает отсортированные
+имена функций до разрешения вызовов. Несовпадение оборачивается в
+`ErrBridgeProtocolMismatch`, `ErrBridgeVersionMismatch` или
+`ErrContractMismatch`, поэтому можно использовать `errors.Is`.
 
-Inspection and validation stop after the bridge's contract `pong`; they do not
-send `start`, instantiate the component, link host callbacks, or execute guest
-code. A non-compatible component produces `ValidationReport{Compatible:false}`
-with missing and unexpected imports/exports. Operational failures and bridge
-version mismatches are returned as `error`. Structural signatures cover
-primitive values and nested records, lists, options, results, tuples, enums,
-flags and variants.
+Inspection и validation останавливаются после contract `pong`. Они не отправляют
+`start`, не instantiate-ят component, не линкуют host callbacks и не запускают
+guest code. Несовместимый component даёт
+`ValidationReport{Compatible:false}` с missing/unexpected imports/exports.
+Операционные сбои и version mismatch bridge возвращаются как `error`.
 
-`Contract` provides defensive, sorted accessors and lookup helpers:
+`Contract` даёт безопасные отсортированные accessors и lookup helpers:
 
 ```go
 imports := manifest.ImportNames()
@@ -56,13 +54,13 @@ provided := manifest.Provides("example:plugins/api@1.0.0#run")
 signature, ok := manifest.Signature("example:plugins/api@1.0.0#run")
 ```
 
-`ValidationReport.Err()` returns nil for a compatible component and a
-`*ContractValidationError` otherwise. `Summary()` provides deterministic text,
-and `ProblemCount()` counts name and signature mismatches.
+`ValidationReport.Err()` возвращает `nil` для совместимого компонента и
+`*ContractValidationError` в противном случае. `Summary()` даёт детерминированный
+текст, а `ProblemCount()` считает name и signature mismatches.
 
 `LoadRuntimeFromBytes*` сохраняет Component во временный файл, потому что
-Wasmtime bridge загружает его по пути. `Runtime.Close` завершает bridge и удаляет
-этот файл.
+Wasmtime bridge загружает его по пути. `Runtime.Close` завершает bridge и
+удаляет этот файл.
 
 ```go
 func (r *Runtime) Call(name string, args ...any) (any, error)
@@ -72,7 +70,7 @@ func (r *Runtime) FuelRemaining() (uint64, error)
 func (r *Runtime) SetFuel(fuel uint64) error
 ```
 
-Live Component Model handles use one runtime-bound value:
+Живые Component Model handles используют один runtime-bound тип:
 
 ```go
 type Handle struct { /* unexported lifecycle state */ }
@@ -87,26 +85,26 @@ func (h Handle) Close() error
 func CloseHandles(handles ...Handle) error
 ```
 
-`HandleKind` is one of `HandleResource`, `HandleFuture`, `HandleStream`, or
-`HandleErrorContext`. A handle can only be sent back to the Runtime that
-created it. `Close` invokes `resource_drop`, closes a future/stream, or removes
-an error-context token. Future/stream payload reader and writer operations are
-not part of the dynamic API yet.
+`HandleKind` принимает одно из значений `HandleResource`, `HandleFuture`,
+`HandleStream` или `HandleErrorContext`. Handle можно отправлять обратно только
+в тот `Runtime`, который его создал. `Close` вызывает `resource_drop`,
+закрывает future/stream или удаляет `error-context` token.
 
-Value helpers used by generated bindings:
+Helper-типы, которые активно используются generated bindings:
 
 - `Option[T]`: `Some`, `None`, `OptionFromPointer`, `Get`, `Or`, `Pointer`,
   `MapOption`, `FlatMapOption`;
 - `Result[T,E]`: `Ok`, `Err`, `GetOK`, `GetErr`, `Or`, `MatchResult`,
   `MapResult`, `MapResultErr`;
 - `Char`: `NewChar`, `ParseChar`, `Rune`, `String`;
-- `Tuple0` ... `Tuple16`: `NewTupleN`, typed `V0...` fields, `Values` and
-  strict array codecs; larger tuples use `Tuple`, `At`, `Set`, `TupleValue`;
-- `Map[K,V]`: `NewMap`, `Get`, `Put`, `Delete`, `Clone` and strict pair codec.
+- `Tuple0`...`Tuple16`: `NewTupleN`, типизированные поля `V0...`, `Values` и
+  строгий array codec; большие tuple используют `Tuple`, `At`, `Set`,
+  `TupleValue`;
+- `Map[K,V]`: `NewMap`, `Get`, `Put`, `Delete`, `Clone` и строгий pair codec.
 
-Имя interface export имеет вид
-`namespace:package/interface@version#function`. Direct world functions передают
-только имя функции.
+Имя interface export имеет форму
+`namespace:package/interface@version#function`. Direct world functions
+передают только имя функции.
 
 ## Host capabilities
 
@@ -121,51 +119,51 @@ type HostImport struct {
 ```
 
 Linker регистрирует только переданный список. Повторяющийся import, пустое имя
-или nil callback являются ошибкой. Generated package скрывает этот
+или `nil` callback считаются ошибкой. Generated package скрывает этот
 низкоуровневый API за типизированным Go interface.
 
 ## RuntimeOptions
 
 ```go
 type RuntimeOptions struct {
-	Fuel             uint64
-	FuelPerCall      uint64
-	Timeout          time.Duration
-	MemoryLimitBytes int64
-	MaxResultBytes   uint64
-	InstanceLimit    int64
-	BridgePath       string
-	BridgeSHA256     string
+	Fuel                  uint64
+	FuelPerCall           uint64
+	Timeout               time.Duration
+	MemoryLimitBytes      int64
+	MaxResultBytes        uint64
+	InstanceLimit         int64
+	BridgePath            string
+	BridgeSHA256          string
 	DisableEmbeddedBridge bool
 }
 ```
 
-`Fuel` - общий остаток Store. `FuelPerCall` сбрасывает budget перед каждым
-export call. `Timeout` прерывает Wasm epoch interrupt, но не блокирующий host
-callback. Memory и instance limits применяются внутри Store. `MaxResultBytes`
-ограничивает сообщения постоянного Go↔bridge канала.
+`Fuel` задаёт общий budget Store. `FuelPerCall` сбрасывает budget перед каждым
+export call. `Timeout` прерывает Wasm через epoch interrupt, но не останавливает
+зависший host callback. Memory и instance limits применяются внутри Store.
+`MaxResultBytes` ограничивает сообщения внутреннего Go-bridge канала.
 
-`BridgePath` может указывать на заранее установленную и подписанную shared
-library; по умолчанию используется библиотека, уже содержащаяся в Go module.
+`BridgePath` может указывать на заранее установленную shared library; по
+умолчанию используется библиотека, уже встроенная в Go module. `BridgeSHA256`
+закрепляет явный `BridgePath`. `DisableEmbeddedBridge` гарантирует, что
+встроенная копия не будет распакована.
 
-`BridgeSHA256` pins an explicit `BridgePath`.
-`DisableEmbeddedBridge` guarantees that a distribution-provided embedded
-library is not extracted.
-See [Runtime architecture](architecture.md) for environment-variable controls
-and the complete resolution order.
+Подробный порядок поиска и env-переменные описаны в
+[docs/architecture.md](architecture.md).
 
-## Errors
+## Ошибки
 
-- `ErrRuntimeClosed` - runtime is already closed.
-- `ErrBridgeProtocolMismatch` - protocol version or a required feature differs.
-- `ErrBridgeVersionMismatch` - native bridge and Go package versions differ.
-- `ErrContractMismatch` - imports, exports, or structural signatures differ.
-- `ErrHandleClosed` - handle already transferred, closed, or unknown to this Runtime.
-
-- `ErrCoreModule` - передан core module вместо Component.
-- `ErrFuelDisabled` - fuel не был включён.
-- `ErrFuelExhausted` - Wasmtime остановил call по fuel.
-- `ErrCallTimeout` - epoch deadline остановил call.
-- `ErrResultTooLarge` - сообщение превысило configured limit.
+- `ErrRuntimeClosed`: runtime уже закрыт.
+- `ErrBridgeProtocolMismatch`: version handshake или обязательные feature-флаги
+  не совпали.
+- `ErrBridgeVersionMismatch`: версия native bridge не совпала с версией Go
+  package.
+- `ErrContractMismatch`: imports, exports или structural signatures отличаются.
+- `ErrHandleClosed`: handle уже передан, закрыт или неизвестен этому `Runtime`.
+- `ErrCoreModule`: вместо Component передан core module.
+- `ErrFuelDisabled`: fuel metering не был включён.
+- `ErrFuelExhausted`: Wasmtime остановил вызов по fuel.
+- `ErrCallTimeout`: epoch deadline остановил вызов.
+- `ErrResultTooLarge`: protocol message превысило настроенный лимит.
 - `ExecutionLimitError` и `FuelDisabledError` сохраняют исходную причину через
   `Unwrap` и поддерживают `errors.Is`.

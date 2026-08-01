@@ -1,19 +1,22 @@
 <p align="center"><img src="assets/art.png" alt="art" width="300"></p>
 
+# witgo
+
 `witgo` генерирует типизированный Go API из WIT-контракта и позволяет Go-host
-загружать WebAssembly Component плагины, вызывать их exports и предоставлять им
+загружать WebAssembly Component-плагины, вызывать их exports и предоставлять им
 host-функции.
 
-> Статус: beta. Основной сценарий `string` + числа + records + lists + options
-> работает и покрыт end-to-end тестом. Перед production-релизом проверяйте свой
-> конкретный WIT-контракт тестами.
+> Статус: beta. Библиотека уже покрывает основной сценарий Component Model,
+> строгую проверку контракта до запуска, version handshake с Rust bridge и
+> end-to-end тесты для сложных типов. Перед production-использованием всё равно
+> стоит прогнать свои контракты и плагины отдельными интеграционными тестами.
 
 ## Требования
 
 - Go 1.18 или новее;
 - плагин в формате WebAssembly Component (`.wasm`), а не core Wasm module;
-- tagged module содержит native shared library для Windows, Linux и macOS на
-  amd64/arm64; отдельная установка и download при запуске не нужны.
+- встроенный native bridge уже лежит в модуле для Linux, macOS и Windows на
+  `amd64` и `arm64`, отдельная установка при запуске не нужна.
 
 ## Установка
 
@@ -21,7 +24,9 @@ host-функции.
 go get github.com/slavkiy/witgo
 ```
 
-## 1. Создайте WIT-контракт
+## Быстрый старт
+
+### 1. Опишите контракт в WIT
 
 Например, `wit/plugin.wit`:
 
@@ -50,11 +55,11 @@ world plugin {
 }
 ```
 
-`import host` - функции, которые предоставляет приложение.
+`import host` описывает функции, которые даёт приложение.
 
-`export metadata` - функции, которые реализует плагин.
+`export metadata` описывает функции, которые реализует плагин.
 
-## 2. Сгенерируйте Go package
+### 2. Сгенерируйте Go package
 
 Создайте `generate.go`:
 
@@ -88,9 +93,10 @@ go run generate.go
 ```
 
 Будет создан `internal/contract/bindings.gen.go` с типами `Info`, `Host`,
-`Plugin` и конструкторами `OpenPlugin`/`OpenPluginWithOptions`.
+`Plugin`, `PluginImports`, а также helper-функциями `PluginPing`,
+`ValidatePlugin`, `CheckPlugin`, `OpenPlugin` и `OpenPluginWithOptions`.
 
-## 3. Реализуйте функции host
+### 3. Реализуйте host-функции
 
 ```go
 type pluginHost struct{}
@@ -100,10 +106,10 @@ func (pluginHost) ProcessString(value string) string {
 }
 ```
 
-Сигнатуру проверяет компилятор Go: реализация должна соответствовать generated
-interface `contract.Host`.
+Go-компилятор сам проверит, что реализация соответствует generated interface
+`contract.Host`.
 
-## 4. Откройте плагин
+### 4. Проверьте контракт и откройте плагин
 
 ```go
 package main
@@ -143,13 +149,13 @@ func main() {
 }
 ```
 
-Вызов делается через interface, которому принадлежит функция:
+Вызовы export-функций остаются типизированными:
 
 ```go
 info, err := plugin.Metadata.Get()
 ```
 
-## 5. Ограничьте плагин
+### 5. Ограничьте выполнение плагина
 
 ```go
 plugin, err := contract.OpenPluginWithOptions(
@@ -173,60 +179,45 @@ if err := contract.CheckPlugin("./plugins/plugin.component.wasm"); err != nil {
 }
 ```
 
-Ошибка от `CheckPlugin` поддерживает `errors.Is(err,
-witgo.ErrContractMismatch)` и `errors.As` в `*witgo.ContractValidationError`.
-Подробное руководство: [валидация компонентов](docs/validation.md).
+Ошибка от `CheckPlugin` поддерживает `errors.Is(err, witgo.ErrContractMismatch)`
+и `errors.As` к `*witgo.ContractValidationError`.
 
-| Поле | Назначение |
-| --- | --- |
-| `FuelPerCall` | Новый вычислительный бюджет для каждого вызова |
-| `Fuel` | Общий бюджет на всё время жизни плагина |
-| `Timeout` | Максимальное время выполнения Wasm-вызова |
-| `MemoryLimitBytes` | Лимит каждой linear memory |
-| `MaxResultBytes` | Максимальный объём передаваемого результата |
-| `InstanceLimit` | Максимальное количество Wasm instances |
+## Что есть сейчас
 
-`Fuel` и `FuelPerCall` нельзя задавать одновременно.
+- строгий version handshake между Go-библиотекой и Rust bridge;
+- проверка контракта до instantiation: imports, exports, structural signatures;
+- generated `Ping`-manifest для каждого `world`;
+- типизированные bindings для records, enums, flags, variants, options, results,
+  tuples, maps и вложенных списков;
+- `witgo.Handle` для `resource`, `future`, `stream` и `error-context`;
+- end-to-end тесты для maps, variants, resources и сложных списков;
+- CI-матрица для Linux, macOS и Windows на `amd64` и `arm64`;
+- встроенный native bridge без отдельного sidecar-процесса и без CGO.
 
-```go
-info, err := plugin.Metadata.Get()
-switch {
-case errors.Is(err, witgo.ErrFuelExhausted):
-	log.Println("plugin exhausted its fuel")
-case errors.Is(err, witgo.ErrCallTimeout):
-	log.Println("plugin timed out")
-case err != nil:
-	log.Println("plugin failed:", err)
-default:
-	fmt.Println(info.Name)
-}
-```
+## Ограничения на сегодня
 
-## Host capabilities
+- `resource`, `future`, `stream` и `error-context` поддерживаются как живые
+  runtime-bound handle, но не как полностью типизированный high-level API;
+- для `future<T>` и `stream<T>` ещё нет generated Go API для чтения/записи typed
+  payload;
+- tuple с arity больше 16 переходят в динамический `witgo.Tuple`;
+- `map<K,V>` поддерживается, но ключ обязан быть `comparable` в Go;
+- capability policy, observability hooks, instance pool и hot reload пока не
+  входят в публичную библиотеку.
 
-Плагин получает только imports из WIT world, реализации которых переданы в
-`OpenPlugin`. Не добавляйте filesystem или network imports, если плагину они не
-нужны.
-
-Timeout прерывает выполнение Wasm, но не зависшую реализацию Go host-функции.
-Host-функции должны самостоятельно соблюдать timeout и лимиты.
+Полная матрица возможностей и ограничений собрана в
+[docs/capabilities.md](docs/capabilities.md).
 
 ## Поддерживаемые значения
 
-Runtime проверен для `bool`, чисел, `char`, `string`, records, nested lists,
-type-safe options/results, tuples, maps, enums, flags и variants. Resources, futures,
-streams и `error-context` передаются как
-привязанные к Runtime `witgo.Handle`: их можно вернуть в Component и явно
-закрыть через `Handle.Close`. Чтение payload future/stream из Go пока не входит
-в dynamic handle API.
+Runtime покрывает `bool`, все WIT-числа, `char`, `string`, records, lists,
+options, results, tuples, maps, enums, flags и variants.
 
-CI собирает Go и Rust bridge на Linux, macOS и Windows для amd64 и arm64. E2E
-проверяет version handshake, maps, variants, nested lists и resource-контракты.
+`resource`, `future`, `stream` и `error-context` передаются как `witgo.Handle`.
+Такой handle привязан к конкретному `Runtime`, его можно вернуть обратно в
+Component и явно закрыть через `Handle.Close`.
 
-Полная матрица parser/generator/runtime, эксплуатационные гарантии и известные
-ограничения собраны в [документе возможностей](docs/capabilities.md).
-
-## Рабочий пример
+## Пример
 
 ```powershell
 go run ./examples/generate
@@ -244,31 +235,35 @@ Description: Resizes uploaded images and creates previews.
 ```
 
 - [WIT-контракт](examples/generate/wit/plugin.wit)
-- [Generated package](examples/generate/out/bindings.gen.go)
+- [Сгенерированный package](examples/generate/out/bindings.gen.go)
 - [Component plugin](examples/plugin/plugin.wat)
 - [Go host](examples/server/main.go)
 
-## How it works
+## Как это работает
 
-`witgo` loads a version-matched Wasmtime DLL/shared library in the Go process.
-There is no child executable, stdin/stdout IPC, separate installation or
-runtime download. The current platform library is already embedded in the Go
-module and is materialized into a content-addressed cache after SHA-256
-verification. Go calls its stable C ABI without CGO.
+`witgo` загружает version-matched Wasmtime shared library прямо в Go-процесс.
+Нет отдельного дочернего процесса, нет stdin/stdout IPC, нет download шага во
+время запуска. Нативная библиотека уже встроена в Go-модуль и при первом
+использовании распаковывается в content-addressed cache после SHA-256
+проверки.
 
-Every release contains Linux, macOS and Windows libraries for amd64 and arm64,
-raw and packaged SHA-256 checksums, an SPDX SBOM, and GitHub build-provenance
-attestations. Cache installation and concurrent calls are handled explicitly.
-The complete loading order, in-process protocol,
-supported WIT types and lifecycle guarantees are documented in
-[Runtime architecture](docs/architecture.md); reproducible build and artifact
-verification commands are in [Releasing](docs/releasing.md).
-Release changes are listed in [CHANGELOG.md](CHANGELOG.md).
+При инициализации Go и Rust обмениваются `protocol_version`,
+`witgo_version`, `bridge_version`, `wasmtime_version` и обязательными
+feature-флагами. До запуска `start` bridge отвечает на contract `ping`
+отсортированными именами import/export-функций, а generated Go bindings
+сравнивают их с ожидаемым контрактом и зарегистрированными host imports.
+
+Подробности:
+
+- [Архитектура runtime](docs/architecture.md)
+- [Проверка контрактов](docs/validation.md)
+- [Generated code](docs/generated-code.md)
+- [Публичный API](docs/public-api.md)
+- [Релизный процесс](docs/releasing.md)
+- [Список изменений](CHANGELOG.md)
 
 ## Проверка
 
 ```powershell
 go test ./...
 ```
-
-Описание API: [docs/public-api.md](docs/public-api.md).
