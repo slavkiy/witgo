@@ -68,6 +68,9 @@ jobs:
 
   tinygo:
     runs-on: ubuntu-latest
+    env:
+      # TinyGo links its libc first; dlopen lives in glibc itself since 2.34.
+      CGO_LDFLAGS: /usr/lib/x86_64-linux-gnu/libc.so.6
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v6
