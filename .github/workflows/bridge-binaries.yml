@@ -47,6 +47,13 @@ jobs:
         with:
           go-version-file: go.mod
       - uses: dtolnay/rust-toolchain@stable
+        if: runner.os != 'macOS'
+      - name: Verify preinstalled Rust toolchain
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          rustc --version
+          cargo --version
       - name: Build bridge
         working-directory: bridge
         run: cargo build --locked --release --lib

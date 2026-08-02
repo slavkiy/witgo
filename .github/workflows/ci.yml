@@ -34,8 +34,20 @@ jobs:
           go-version: '1.18.x'
           cache: true
       - uses: dtolnay/rust-toolchain@stable
+        if: runner.os != 'macOS'
         with:
           components: clippy,rustfmt
+      # GitHub's macOS images already include Rust, clippy and rustfmt. Avoid
+      # downloading the same toolchain again: Intel runners occasionally have
+      # no DNS route to static.rust-lang.org during rustup setup.
+      - name: Verify preinstalled Rust toolchain
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          rustc --version
+          cargo --version
+          cargo clippy --version
+          cargo fmt --version
       - name: Test Rust bridge
         working-directory: bridge
         run: cargo test --locked
