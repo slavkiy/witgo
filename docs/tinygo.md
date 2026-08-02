@@ -48,7 +48,7 @@ witgen -mode guest -wit ./wit -wit-mode package -world plugin \
 witgen -mode guest -wit ./wit -world plugin \
   -out ./internal/contract -package contract \
   -build-main ./cmd/plugin \
-  -wit-package ./wit/plugin.wit.package.wasm \
+  -wit-package ./wit \
   -component-out ./dist/plugin.component.wasm -no-debug
 ```
 

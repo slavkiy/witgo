@@ -44,7 +44,8 @@ Canonical ABI declarations создаёт `wit-bindgen-go`; при отсутс�
 `GenerateFiles` в guest mode пока не поддерживаются. Если в WIT несколько
 world, `Config.World` обязателен.
 
-Для финальной component-сборки используется `BuildGuestComponent` или CLI
+Для финальной component-сборки используется единый `BuildPlugin`, отдельный
+`BuildGuestComponent` или CLI
 флаги `-build-main`, `-wit-package` и `-component-out`. Подробный workflow - в
 [go-guest-plugins.md](go-guest-plugins.md).
 

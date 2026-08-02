@@ -1040,6 +1040,18 @@ func (r *renderer) renderWorld(world *ir.World) error {
 	fmt.Fprintln(&r.out, "}")
 	fmt.Fprintln(&r.out)
 
+	fmt.Fprintf(&r.out, "// Open%sWithPolicy resolves permissions and limits owned by the host.\n", worldName)
+	fmt.Fprintf(&r.out, "func Open%sWithPolicy(policy witgo.HostPolicy, pluginID, filename string, imports ...%sImports) (*%s, error) {\n", worldName, worldName, worldName)
+	fmt.Fprintf(&r.out, "\treturn Open%sWithPolicyContext(context.Background(), policy, pluginID, filename, imports...)\n", worldName)
+	fmt.Fprintln(&r.out, "}")
+	fmt.Fprintln(&r.out)
+	fmt.Fprintf(&r.out, "func Open%sWithPolicyContext(ctx context.Context, policy witgo.HostPolicy, pluginID, filename string, imports ...%sImports) (*%s, error) {\n", worldName, worldName, worldName)
+	fmt.Fprintln(&r.out, "\toptions, err := policy.Options(pluginID)")
+	fmt.Fprintln(&r.out, "\tif err != nil { return nil, err }")
+	fmt.Fprintf(&r.out, "\treturn Open%sWithOptionsContext(ctx, filename, options, imports...)\n", worldName)
+	fmt.Fprintln(&r.out, "}")
+	fmt.Fprintln(&r.out)
+
 	fmt.Fprintf(&r.out, "// Open%sWithOptions loads a component with runtime options and verifies its function manifest.\n", worldName)
 	fmt.Fprintf(&r.out, "func Open%sWithOptions(filename string, _witgoOptions witgo.RuntimeOptions, imports ...%sImports) (*%s, error) {\n", worldName, worldName, worldName)
 	fmt.Fprintf(&r.out, "\treturn Open%sWithOptionsContext(context.Background(), filename, _witgoOptions, imports...)\n", worldName)

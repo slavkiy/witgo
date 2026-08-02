@@ -195,7 +195,52 @@ func main() {
 info, err := plugin.Metadata.Get(ctx)
 ```
 
-### 5. Ограничьте выполнение плагина
+### 5. Задайте права и топливо на хосте
+
+Для нескольких плагинов удобнее один раз описать host policy. Нулевая policy
+безопасна: она запрещает ambient capabilities и загрузку зависимостей.
+
+```go
+policy := witgo.HostPolicy{
+	Public: witgo.PluginGrant{
+		// Эти разрешения и лимиты получит каждый плагин.
+		Permissions: witgo.Permissions{
+			System: true,
+			Allow: []string{"example:plugins/host@1.0.0"},
+		},
+		Limits: witgo.PluginLimits{
+			FuelPerCall:      1_000_000,
+			Timeout:          2 * time.Second,
+			MemoryLimitBytes: 64 << 20,
+		},
+	},
+	Plugins: map[string]witgo.PluginGrant{
+		"downloader": {
+			Permissions: witgo.Permissions{Network: true},
+		},
+		"orchestrator": {
+			Permissions: witgo.Permissions{LoadPlugin: true},
+			AllowedPluginRoots: []string{"./plugins"},
+		},
+	},
+}
+
+plugin, err := contract.OpenPluginWithPolicyContext(
+	ctx, policy, "downloader", "./plugins/downloader.wasm",
+	contract.PluginImports{Host: pluginHost{}},
+)
+```
+
+`System`, `Network` и `Files` разрешают соответствующие WASI namespaces,
+`Allow` принимает точные WIT interface/function patterns, а `Deny` всегда
+имеет приоритет. `LoadPlugin` разрешает только зависимости из plugin manifest
+и ограничивается host-owned `AllowedPluginRoots`.
+
+Если plugin умеет запрашивать дополнительное топливо через opt-in runtime API,
+хост также задаёт `FuelRequests` и `FuelPolicy`; сам plugin не может назначить
+себе fuel или расширить права.
+
+Низкоуровневый вариант через `RuntimeOptions` тоже сохранён:
 
 ```go
 plugin, err := contract.OpenPluginWithOptionsContext(
@@ -211,6 +256,32 @@ plugin, err := contract.OpenPluginWithOptionsContext(
 	contract.PluginImports{Host: pluginHost{}},
 )
 ```
+
+### 6. Сгенерируйте и соберите Go-плагин
+
+Один вызов может сначала создать guest bindings из того же WIT-контракта, а
+затем собрать готовый Component и встроить manifest зависимостей:
+
+```go
+err := witgo.BuildPlugin(witgo.PluginBuildConfig{
+	Generate: witgo.Config{
+		WIT: "./wit", WITMode: witgo.WITInputPackage,
+		World: "plugin", Output: "./internal/contract",
+		Package: "contract",
+	},
+	Build: witgo.GuestBuildConfig{
+		Main: "./cmd/plugin", World: "plugin",
+		WITPackage: "./wit",
+		Output: "./dist/plugin.component.wasm",
+		Manifest: &witgo.PluginManifest{Dependencies: map[string]string{
+			"example:plugins/cache@1.0.0": "cache.component.wasm",
+		}},
+	},
+})
+```
+
+В коде плагина остаётся только реализовать generated `<Interface>Guest` и
+вызвать `Export<World>`; собранный файл затем открывается generated host API.
 
 Если подробный отчёт не нужен, используйте короткую проверку:
 

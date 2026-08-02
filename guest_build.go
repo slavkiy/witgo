@@ -3,6 +3,7 @@ package witgo
 import (
 	"bytes"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 )
@@ -13,8 +14,8 @@ import (
 type GuestBuildConfig struct {
 	// Main is the plugin main package or .go file.
 	Main string
-	// WITPackage is a WIT package accepted by TinyGo --wit-package (normally a
-	// packaged .wasm WIT file).
+	// WITPackage is a WIT package accepted by TinyGo --wit-package. TinyGo
+	// accepts a WIT package directory; a packaged .wasm may also be used.
 	WITPackage string
 	// World is the implemented WIT world.
 	World string
@@ -24,6 +25,9 @@ type GuestBuildConfig struct {
 	TinyGo string
 	// NoDebug removes debug data from the component.
 	NoDebug bool
+	// Manifest is embedded after a successful build. A nil manifest omits the
+	// witgo custom section; an empty non-nil manifest is still embedded.
+	Manifest *PluginManifest
 }
 
 // BuildGuestComponent builds a registered Go guest as a WASI Preview 2
@@ -62,5 +66,42 @@ func BuildGuestComponent(config GuestBuildConfig) error {
 	if err := command.Run(); err != nil {
 		return fmt.Errorf("build TinyGo guest component: %w\n%s", err, strings.TrimSpace(output.String()))
 	}
+	if config.Manifest != nil {
+		component, err := os.ReadFile(config.Output)
+		if err != nil {
+			return fmt.Errorf("read built guest component: %w", err)
+		}
+		component, err = EmbedPluginManifest(component, *config.Manifest)
+		if err != nil {
+			return fmt.Errorf("embed plugin manifest: %w", err)
+		}
+		if err := os.WriteFile(config.Output, component, 0o644); err != nil {
+			return fmt.Errorf("write guest component with manifest: %w", err)
+		}
+	}
 	return nil
+}
+
+// PluginBuildConfig describes the complete generated-contract plugin build.
+type PluginBuildConfig struct {
+	Generate Config
+	Build    GuestBuildConfig
+}
+
+// BuildPlugin generates guest bindings and builds the loadable component.
+func BuildPlugin(config PluginBuildConfig) error {
+	config.Generate.Mode = GenerateGuest
+	if config.Generate.World == "" {
+		config.Generate.World = config.Build.World
+	}
+	if config.Build.World == "" {
+		config.Build.World = config.Generate.World
+	}
+	if config.Build.WITPackage == "" {
+		config.Build.WITPackage = config.Generate.WIT
+	}
+	if err := Generate(config.Generate); err != nil {
+		return fmt.Errorf("generate plugin contract: %w", err)
+	}
+	return BuildGuestComponent(config.Build)
 }

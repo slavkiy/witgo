@@ -12,8 +12,11 @@
 - generated guest API: `<Interface>Guest`, `<World>Guest`, `Export<World>` и
   `Imports`;
 - `BuildGuestComponent` и `GuestBuildConfig` для TinyGo `wasip2` build;
+- `BuildPlugin` и `PluginBuildConfig` для generation + build + manifest;
 - `Host` для composition routing;
 - `RuntimeOptions` для лимитов и policy;
+- `HostPolicy`, `Permissions`, `PluginGrant` и `PluginLimits` для обычной
+  настройки прав и fuel по plugin ID;
 - `Handle` для runtime-bound Component handles.
 
 Низкоуровневый `Runtime.Call` и ручная сборка `HostImport` остаются рабочими,
@@ -78,7 +81,7 @@ Guest mode не использует native Wasmtime loader и не генери
 ```go
 err := witgo.BuildGuestComponent(witgo.GuestBuildConfig{
 	Main:       "./cmd/plugin",
-	WITPackage: "./wit/plugin.wit.package.wasm",
+	WITPackage: "./wit",
 	World:      "plugin",
 	Output:     "./dist/plugin.component.wasm",
 	NoDebug:    true,
@@ -86,10 +89,21 @@ err := witgo.BuildGuestComponent(witgo.GuestBuildConfig{
 ```
 
 Команда запускает TinyGo с `-target=wasip2`, `--wit-package` и `--wit-world`.
+`WITPackage` может указывать непосредственно на каталог WIT package; заранее
+создавать отдельный packaged `.wasm` для обычного сценария не требуется.
 TinyGo добавляет Component Type metadata и выдаёт готовый Component, а не core
 Wasm module.
 
 ## RuntimeOptions
+
+Для прикладного кода предпочтителен `HostPolicy.Options(pluginID)` или
+generated `Open<World>WithPolicy`: public grant применяется ко всем плагинам,
+а named grant добавляет права и переопределяет ненулевые лимиты. Нулевая
+`HostPolicy` запрещает все ambient imports и nested plugin loading.
+
+`Permissions.System`, `Network` и `Files` соответствуют WASI namespaces;
+`Allow`/`Deny` задают произвольные WIT patterns. `LoadPlugin` разрешает
+manifest-based dependency loading только внутри `AllowedPluginRoots`.
 
 Главные опции runtime:
 

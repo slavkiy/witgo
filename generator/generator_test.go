@@ -63,6 +63,7 @@ world plugin {
 		"type pluginSSOClient struct",
 		"func OpenPlugin",
 		"func OpenPluginWithOptions",
+		"func OpenPluginWithPolicy",
 		"binding userBinding",
 		"func (value User) Save(ctx context.Context) (bool, error)",
 		`WITPackageID        = "simple:model@1.0.0"`,

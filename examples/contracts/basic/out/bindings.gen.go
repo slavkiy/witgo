@@ -484,6 +484,19 @@ func OpenPluginContext(ctx context.Context, filename string, imports ...PluginIm
 	return OpenPluginWithOptionsContext(ctx, filename, witgo.RuntimeOptions{}, imports...)
 }
 
+// OpenPluginWithPolicy resolves permissions and limits owned by the host.
+func OpenPluginWithPolicy(policy witgo.HostPolicy, pluginID, filename string, imports ...PluginImports) (*Plugin, error) {
+	return OpenPluginWithPolicyContext(context.Background(), policy, pluginID, filename, imports...)
+}
+
+func OpenPluginWithPolicyContext(ctx context.Context, policy witgo.HostPolicy, pluginID, filename string, imports ...PluginImports) (*Plugin, error) {
+	options, err := policy.Options(pluginID)
+	if err != nil {
+		return nil, err
+	}
+	return OpenPluginWithOptionsContext(ctx, filename, options, imports...)
+}
+
 // OpenPluginWithOptions loads a component with runtime options and verifies its function manifest.
 func OpenPluginWithOptions(filename string, _witgoOptions witgo.RuntimeOptions, imports ...PluginImports) (*Plugin, error) {
 	return OpenPluginWithOptionsContext(context.Background(), filename, _witgoOptions, imports...)
