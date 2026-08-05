@@ -726,32 +726,68 @@ func (p *Parser) parseTupleType() (ast.TypeExpr, error) {
 
 func (p *Parser) parsePath() (*ast.Path, error) {
 	startTok := p.peek()
+
 	var pkg *ast.PackagePath
-	if p.match(token.TokenIdentifier) && p.peekAt(1).Type == token.TokenColon && p.peekAt(2).Type == token.TokenIdentifier && p.peekAt(3).Type == token.TokenSlash {
+	if p.match(token.TokenIdentifier) &&
+		p.peekAt(1).Type == token.TokenColon &&
+		p.peekAt(2).Type == token.TokenIdentifier &&
+		p.peekAt(3).Type == token.TokenSlash {
+
 		ns := p.next()
 		p.expect(token.TokenColon)
+
 		name := p.expect(token.TokenIdentifier)
 		p.expect(token.TokenSlash)
+
 		pkg = &ast.PackagePath{
 			Namespace: ns.Slice(p.src),
 			Name:      name.Slice(p.src),
-			SpanRange: ast.Span{Start: ns.Start, End: name.End},
+			SpanRange: ast.Span{
+				Start: ns.Start,
+				End:   name.End,
+			},
 		}
 	}
+
 	first, err := p.expectAnyName()
 	if err != nil {
 		return nil, err
 	}
+
 	segments := []ast.Name{first}
+
 	for p.match(token.TokenDot) || p.match(token.TokenSlash) {
 		p.next()
+
 		part, err := p.expectAnyName()
 		if err != nil {
 			return nil, err
 		}
+
 		segments = append(segments, part)
 	}
-	return &ast.Path{Package: pkg, Segments: segments, SpanRange: ast.Span{Start: startTok.Start, End: segments[len(segments)-1].SpanRange.End}}, nil
+
+	end := segments[len(segments)-1].SpanRange.End
+
+	// wasi:cli/imports@0.2.0
+	if p.match(token.TokenAt) {
+		p.next()
+
+		if _, err := p.parseVersion(); err != nil {
+			return nil, err
+		}
+
+		end = p.prev().End
+	}
+
+	return &ast.Path{
+		Package:  pkg,
+		Segments: segments,
+		SpanRange: ast.Span{
+			Start: startTok.Start,
+			End:   end,
+		},
+	}, nil
 }
 
 func (p *Parser) parseUsePath() (*ast.Path, error) {
