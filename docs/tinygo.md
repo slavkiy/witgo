@@ -31,7 +31,7 @@ TinyGo; generated API от него не зависит.
 Установите инструменты:
 
 ```sh
-go install go.bytecodealliance.org/cmd/wit-bindgen-go@v0.7.0
+go install github.com/bytecodealliance/wit-bindgen-go/cmd/wit-bindgen-go
 go get go.bytecodealliance.org/cm@v0.7.0
 ```
 

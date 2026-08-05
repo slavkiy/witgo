@@ -115,7 +115,7 @@ go get github.com/slavkiy/witgo
 
 ```sh
 tinygo version
-go install go.bytecodealliance.org/cmd/wit-bindgen-go@v0.7.0
+go install github.com/bytecodealliance/wit-bindgen-go/cmd/wit-bindgen-go
 wit-bindgen-go version
 ```
 
