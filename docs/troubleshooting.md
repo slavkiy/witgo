@@ -192,7 +192,7 @@ host capabilities через `contract.Imports`.
 Установите toolchain:
 
 ```sh
-go install github.com/bytecodealliance/wit-bindgen-go/cmd/wit-bindgen-go
+go install go.bytecodealliance.org/cmd/wit-bindgen-go
 go get go.bytecodealliance.org/cm@v0.7.0
 ```
 
