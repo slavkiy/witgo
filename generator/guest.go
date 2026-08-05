@@ -106,7 +106,8 @@ func (g *Generator) runGuestBindgen(world, packageRoot string) error {
 	} else if path, err := exec.LookPath("wit-bindgen-go"); err == nil {
 		command = exec.Command(path)
 	} else {
-		command = exec.Command("go", "run", "go.bytecodealliance.org/cmd/wit-bindgen-go@"+guestBindgenVersion)
+		command = exec.Command("go", "run", "go.bytecodealliance.org/cmd/wit-bindgen-go")
+		// command = exec.Command("go", "run", "go.bytecodealliance.org/cmd/wit-bindgen-go@"+guestBindgenVersion)
 	}
 	outputPath, err := filepath.Abs(g.config.Output)
 	if err != nil {
